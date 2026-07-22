@@ -151,3 +151,6 @@ __pycache__/
 venv/
 .venv/
 *.egg-info/
+
+# Uploads scratch space for /generate-poster (per-request, auto-cleaned)
+uploads/

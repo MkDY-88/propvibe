@@ -141,3 +141,13 @@ dist
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
 .vite/
+
+# PropVibe generated poster output (regenerate with: python test_poster.py)
+test_output/
+
+# Python
+__pycache__/
+*.pyc
+venv/
+.venv/
+*.egg-info/

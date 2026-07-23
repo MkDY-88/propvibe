@@ -56,6 +56,11 @@
       margin-top: 16px; padding: 12px 14px; background: #fdecec;
       border: 1px solid #f5b5b5; border-radius: 6px; color: #9b1c1c; font-size: 14px;
     }
+    .success {
+      margin-top: 12px; padding: 12px 14px; background: #e8f5ec;
+      border: 1px solid #9ed6b0; border-radius: 6px; color: #1a6b3a; font-size: 14px;
+    }
+    .success a { color: #1877f2; font-weight: 600; }
     .hidden { display: none; }
     .placeholder {
       color: var(--gray); font-size: 14px; text-align: center; padding: 40px 12px;
@@ -118,9 +123,10 @@
           <label>Call to action</label>
           <div id="cta" class="cta"></div>
 
-          <button class="btn-fb" type="button" disabled title="Coming soon">
+          <button id="fb-btn" class="btn-fb" type="button" disabled>
             Post to Facebook
           </button>
+          <div id="fb-status" class="hidden"></div>
         </div>
       </section>
     </div>
@@ -132,6 +138,14 @@
     const errorBox = document.getElementById("error");
     const placeholder = document.getElementById("placeholder");
     const result = document.getElementById("result");
+    const captionBox = document.getElementById("caption");
+    const fbBtn = document.getElementById("fb-btn");
+    const fbStatus = document.getElementById("fb-status");
+
+    // Holds the pieces of the last successful /create-post so the Facebook post
+    // can reuse them. The caption is intentionally NOT stored here - it's read
+    // live from the textarea at post time so any edits are included.
+    let currentPost = null;
 
     function showError(msg) {
       errorBox.textContent = msg;
@@ -140,6 +154,34 @@
     function clearError() {
       errorBox.textContent = "";
       errorBox.classList.add("hidden");
+    }
+
+    // --- Facebook button state helpers ---
+    function resetFbButton() {
+      fbStatus.className = "hidden";
+      fbStatus.textContent = "";
+      fbBtn.classList.remove("hidden");
+      fbBtn.disabled = false;
+      fbBtn.textContent = "Post to Facebook";
+    }
+    function showFbError(msg) {
+      fbStatus.className = "error";
+      fbStatus.textContent = msg;
+    }
+    function showFbSuccess(url) {
+      // Replace the button with a success message + a real link to the post.
+      fbBtn.classList.add("hidden");
+      fbStatus.className = "success";
+      fbStatus.textContent = "";
+      const label = document.createElement("strong");
+      label.textContent = "Posted to Facebook! ";
+      const link = document.createElement("a");
+      link.href = url;
+      link.target = "_blank";
+      link.rel = "noopener noreferrer";
+      link.textContent = "View the post";
+      fbStatus.appendChild(label);
+      fbStatus.appendChild(link);
     }
 
     form.addEventListener("submit", async (event) => {
@@ -166,7 +208,7 @@
           "data:image/png;base64," + payload.poster_base64;
 
         // Caption goes in an editable textarea so the agent can tweak it.
-        document.getElementById("caption").value = payload.caption || "";
+        captionBox.value = payload.caption || "";
 
         // Hashtags arrive without '#'; add it for display.
         const tagBox = document.getElementById("hashtags");
@@ -180,6 +222,16 @@
 
         document.getElementById("cta").textContent = payload.cta || "";
 
+        // Stash everything the Facebook post needs (except the caption, which is
+        // read live from the textarea) and re-arm the Facebook button - this may
+        // be a re-generate after a previous post/error.
+        currentPost = {
+          poster_base64: payload.poster_base64,
+          hashtags: payload.hashtags || [],
+          cta: payload.cta || "",
+        };
+        resetFbButton();
+
         placeholder.classList.add("hidden");
         result.classList.remove("hidden");
       } catch (err) {
@@ -187,6 +239,48 @@
       } finally {
         genBtn.disabled = false;
         genBtn.textContent = "Generate";
+      }
+    });
+
+    // Publish the current poster + (possibly edited) caption to Facebook.
+    fbBtn.addEventListener("click", async () => {
+      if (!currentPost) return;
+
+      // Loading state + guard against double-clicks.
+      fbStatus.className = "hidden";
+      fbStatus.textContent = "";
+      fbBtn.disabled = true;
+      fbBtn.textContent = "Posting...";
+
+      try {
+        const resp = await fetch("/publish-post", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            poster_base64: currentPost.poster_base64,
+            // Read the caption live so any edits in the textarea are included.
+            caption: captionBox.value,
+            hashtags: currentPost.hashtags,
+            cta: currentPost.cta,
+          }),
+        });
+        const payload = await resp.json().catch(() => ({}));
+
+        if (!resp.ok) {
+          // FastAPI puts the FacebookPublishError message in `detail`. Show it
+          // near the button and re-enable so they can retry - the poster and
+          // caption state are untouched.
+          showFbError(payload.detail || `Publishing failed (HTTP ${resp.status}).`);
+          fbBtn.disabled = false;
+          fbBtn.textContent = "Post to Facebook";
+          return;
+        }
+
+        showFbSuccess(payload.post_url);
+      } catch (err) {
+        showFbError("Could not reach the server. Is the backend running?");
+        fbBtn.disabled = false;
+        fbBtn.textContent = "Post to Facebook";
       }
     });
   </script>

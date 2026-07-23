@@ -11,9 +11,17 @@ import tempfile
 import uuid
 from pathlib import Path
 
+from dotenv import load_dotenv
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 from starlette.background import BackgroundTask
+
+# Load variables from a local .env file (e.g. ANTHROPIC_API_KEY) into the
+# process environment at import time. This is a no-op in production where the
+# platform injects real env vars, and it deliberately does NOT raise if the key
+# is missing - endpoints that actually need it validate at call time and return
+# a clean error instead of crashing the whole app on startup.
+load_dotenv()
 
 # NOTE: this is the `from X import Y` form on purpose - it binds only
 # `generate_poster`, so the `app` package name never lands in this module's

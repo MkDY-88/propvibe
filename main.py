@@ -25,12 +25,21 @@ from fastapi import Body, FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 from starlette.background import BackgroundTask
 
-# Load variables from a local .env file (e.g. ANTHROPIC_API_KEY) into the
-# process environment at import time. This is a no-op in production where the
-# platform injects real env vars, and it deliberately does NOT raise if the key
-# is missing - endpoints that actually need it validate at call time and return
-# a clean error instead of crashing the whole app on startup.
-load_dotenv()
+# Load variables from a local .env file (e.g. ANTHROPIC_API_KEY,
+# FACEBOOK_PAGE_ACCESS_TOKEN) into the process environment at import time.
+#
+# We point at the .env sitting next to THIS file rather than relying on
+# load_dotenv()'s default CWD search: when the server is launched from a parent
+# directory (e.g. `uvicorn main:app --app-dir propvibe`, or on Railway) that
+# search starts above the app folder and silently finds nothing. Resolving
+# relative to __file__ - the same trick UPLOAD_ROOT/STATIC_DIR use below - makes
+# config load no matter where the process was started from.
+#
+# This stays a no-op in production where the platform injects real env vars (the
+# file simply won't exist), and it deliberately does NOT raise if a key is
+# missing - endpoints that actually need one validate at call time and return a
+# clean error instead of crashing the whole app on startup.
+load_dotenv(Path(__file__).resolve().parent / ".env")
 
 # NOTE: this is the `from X import Y` form on purpose - it binds only
 # `generate_poster`, so the `app` package name never lands in this module's

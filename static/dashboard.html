@@ -1,0 +1,194 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>PropVibe - Create Post</title>
+  <style>
+    :root { --navy: #1a2b4c; --gold: #d4af37; --gray: #4a5568; --line: #e2e8f0; }
+    * { box-sizing: border-box; }
+    body {
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      margin: 0; background: #f6f7f9; color: #1a202c; line-height: 1.5;
+    }
+    header { background: var(--navy); color: #fff; padding: 18px 24px; }
+    header h1 { margin: 0; font-size: 20px; }
+    header p { margin: 4px 0 0; font-size: 13px; opacity: 0.8; }
+    main { max-width: 900px; margin: 0 auto; padding: 24px; }
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+    @media (max-width: 720px) { .grid { grid-template-columns: 1fr; } }
+    .card {
+      background: #fff; border: 1px solid var(--line); border-radius: 10px;
+      padding: 20px;
+    }
+    h2 { font-size: 15px; text-transform: uppercase; letter-spacing: 0.04em;
+         color: var(--gray); margin: 0 0 16px; }
+    label { display: block; font-size: 13px; font-weight: 600; margin: 12px 0 4px; }
+    input, textarea {
+      width: 100%; padding: 9px 10px; font: inherit; border: 1px solid var(--line);
+      border-radius: 6px; background: #fff;
+    }
+    textarea { resize: vertical; min-height: 120px; }
+    .row { display: flex; gap: 12px; }
+    .row > div { flex: 1; }
+    button {
+      font: inherit; font-weight: 600; border: 0; border-radius: 6px;
+      padding: 11px 16px; cursor: pointer;
+    }
+    .btn-primary { background: var(--navy); color: #fff; width: 100%; margin-top: 18px; }
+    .btn-primary:disabled { opacity: 0.55; cursor: not-allowed; }
+    .btn-fb {
+      background: #1877f2; color: #fff; width: 100%; margin-top: 12px;
+    }
+    .btn-fb:disabled { background: #9db8de; cursor: not-allowed; }
+    #poster { width: 100%; border-radius: 8px; border: 1px solid var(--line); display: block; }
+    .tags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+    .tag {
+      background: #eef1f6; color: var(--navy); font-size: 13px; font-weight: 600;
+      padding: 4px 9px; border-radius: 999px;
+    }
+    .cta {
+      margin-top: 6px; padding: 10px 12px; background: #fbf7e8;
+      border: 1px solid var(--gold); border-radius: 6px; font-weight: 600;
+    }
+    .muted { color: var(--gray); font-size: 13px; }
+    .error {
+      margin-top: 16px; padding: 12px 14px; background: #fdecec;
+      border: 1px solid #f5b5b5; border-radius: 6px; color: #9b1c1c; font-size: 14px;
+    }
+    .hidden { display: none; }
+    .placeholder {
+      color: var(--gray); font-size: 14px; text-align: center; padding: 40px 12px;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>PropVibe</h1>
+    <p>Generate a poster and social caption for a listing, review, then post.</p>
+  </header>
+
+  <main>
+    <div class="grid">
+      <!-- LEFT: input form -->
+      <section class="card">
+        <h2>Listing details</h2>
+        <form id="post-form">
+          <label for="photos">Photo(s)</label>
+          <input id="photos" name="photos" type="file" accept="image/*" multiple required />
+
+          <label for="price">Price</label>
+          <input id="price" name="price" type="text" placeholder="RM 450,000" required />
+
+          <label for="location">Location</label>
+          <input id="location" name="location" type="text" placeholder="Mont Kiara, Kuala Lumpur" required />
+
+          <div class="row">
+            <div>
+              <label for="bedrooms">Bedrooms</label>
+              <input id="bedrooms" name="bedrooms" type="number" min="0" value="3" required />
+            </div>
+            <div>
+              <label for="bathrooms">Bathrooms</label>
+              <input id="bathrooms" name="bathrooms" type="number" min="0" value="2" required />
+            </div>
+          </div>
+
+          <button id="generate-btn" class="btn-primary" type="submit">Generate</button>
+        </form>
+        <div id="error" class="error hidden"></div>
+      </section>
+
+      <!-- RIGHT: preview / approval -->
+      <section class="card">
+        <h2>Preview</h2>
+        <div id="placeholder" class="placeholder">
+          Fill in the details and hit <strong>Generate</strong> to see the poster and caption here.
+        </div>
+
+        <div id="result" class="hidden">
+          <img id="poster" alt="Generated poster" />
+
+          <label for="caption">Caption <span class="muted">(editable)</span></label>
+          <textarea id="caption"></textarea>
+
+          <label>Hashtags</label>
+          <div id="hashtags" class="tags"></div>
+
+          <label>Call to action</label>
+          <div id="cta" class="cta"></div>
+
+          <button class="btn-fb" type="button" disabled title="Coming soon">
+            Post to Facebook
+          </button>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <script>
+    const form = document.getElementById("post-form");
+    const genBtn = document.getElementById("generate-btn");
+    const errorBox = document.getElementById("error");
+    const placeholder = document.getElementById("placeholder");
+    const result = document.getElementById("result");
+
+    function showError(msg) {
+      errorBox.textContent = msg;
+      errorBox.classList.remove("hidden");
+    }
+    function clearError() {
+      errorBox.textContent = "";
+      errorBox.classList.add("hidden");
+    }
+
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      clearError();
+      genBtn.disabled = true;
+      genBtn.textContent = "Generating...";
+
+      try {
+        // FormData pulls straight from the named inputs, including all photos.
+        const data = new FormData(form);
+
+        const resp = await fetch("/create-post", { method: "POST", body: data });
+        const payload = await resp.json().catch(() => ({}));
+
+        if (!resp.ok) {
+          // FastAPI puts our clean message in `detail`.
+          showError(payload.detail || `Request failed (HTTP ${resp.status}).`);
+          return;
+        }
+
+        // Poster: base64 PNG with no data: prefix, so add one for the <img>.
+        document.getElementById("poster").src =
+          "data:image/png;base64," + payload.poster_base64;
+
+        // Caption goes in an editable textarea so the agent can tweak it.
+        document.getElementById("caption").value = payload.caption || "";
+
+        // Hashtags arrive without '#'; add it for display.
+        const tagBox = document.getElementById("hashtags");
+        tagBox.innerHTML = "";
+        (payload.hashtags || []).forEach((tag) => {
+          const span = document.createElement("span");
+          span.className = "tag";
+          span.textContent = "#" + tag;
+          tagBox.appendChild(span);
+        });
+
+        document.getElementById("cta").textContent = payload.cta || "";
+
+        placeholder.classList.add("hidden");
+        result.classList.remove("hidden");
+      } catch (err) {
+        showError("Could not reach the server. Is the backend running?");
+      } finally {
+        genBtn.disabled = false;
+        genBtn.textContent = "Generate";
+      }
+    });
+  </script>
+</body>
+</html>

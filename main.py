@@ -44,6 +44,10 @@ app = FastAPI()
 # been streamed.
 UPLOAD_ROOT = Path(__file__).resolve().parent / "uploads"
 
+# Static assets (the approval/preview dashboard). Resolved relative to THIS file
+# so it works the same locally and once deployed.
+STATIC_DIR = Path(__file__).resolve().parent / "static"
+
 # Anything larger than this per photo is almost certainly not a listing shot.
 MAX_PHOTO_BYTES = 15 * 1024 * 1024  # 15 MB
 
@@ -51,6 +55,15 @@ MAX_PHOTO_BYTES = 15 * 1024 * 1024  # 15 MB
 @app.get("/")
 def read_root():
     return {"status": "PropVibe backend is live"}
+
+
+@app.get("/dashboard")
+def dashboard():
+    """Serve the minimal approval/preview page."""
+    page = STATIC_DIR / "dashboard.html"
+    if not page.exists():
+        raise HTTPException(status_code=404, detail="Dashboard page not found.")
+    return FileResponse(page, media_type="text/html")
 
 
 def _parse_count(raw: str | None, field: str) -> int:

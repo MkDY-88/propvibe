@@ -10,16 +10,18 @@ Endpoints:
   GET  /dashboard     - minimal approval/preview page (static HTML)
   POST /generate-poster - returns the poster PNG directly
   POST /create-post   - returns poster (base64) + Claude-written caption as JSON
+  POST /publish-post  - publishes a poster + caption to a Facebook Page
 """
 
 import base64
+import binascii
 import shutil
 import tempfile
 import uuid
 from pathlib import Path
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import Body, FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 from starlette.background import BackgroundTask
 
@@ -35,6 +37,7 @@ load_dotenv()
 # namespace and cannot shadow the `app = FastAPI()` instance below.
 from app.poster_generator import generate_poster
 from app.copy_generator import CaptionError, generate_caption
+from app.facebook_publisher import FacebookPublishError, publish_post
 
 app = FastAPI()
 
@@ -305,3 +308,112 @@ async def create_post_endpoint(
         "cta": copy["cta"],
         "poster_base64": poster_base64,
     }
+
+
+def _build_fb_message(caption: str | None, hashtags: list | None, cta: str | None) -> str:
+    """
+    Assemble the final Facebook post text: caption, hashtags, then CTA.
+
+    Blocks are separated by a blank line. Each hashtag is prefixed with '#'
+    (any stray leading '#' the caller already added is stripped first so we
+    never end up with '##tag'). Empty blocks are dropped so the result never
+    starts or ends with dangling blank lines.
+    """
+    parts: list[str] = []
+
+    if isinstance(caption, str) and caption.strip():
+        parts.append(caption.strip())
+
+    tags: list[str] = []
+    for tag in hashtags or []:
+        cleaned = str(tag).lstrip("#").strip()
+        if cleaned:
+            tags.append("#" + cleaned)
+    if tags:
+        parts.append(" ".join(tags))
+
+    if isinstance(cta, str) and cta.strip():
+        parts.append(cta.strip())
+
+    # A blank line between blocks == two newlines.
+    return "\n\n".join(parts)
+
+
+def _decode_poster(poster_base64: str) -> bytes:
+    """
+    Turn the base64 poster string from the client back into PNG bytes.
+
+    Tolerates an accidental `data:image/png;base64,` prefix, and raises a clean
+    400 (rather than a stack trace) if the value is missing or not valid base64.
+    """
+    if not isinstance(poster_base64, str) or not poster_base64.strip():
+        raise HTTPException(status_code=400, detail="'poster_base64' is required.")
+
+    encoded = poster_base64.strip()
+    # Strip a data URL prefix if one slipped in (the API returns raw base64, but
+    # be forgiving in case a caller re-uses an <img> src verbatim).
+    if encoded.startswith("data:"):
+        comma = encoded.find(",")
+        if comma != -1:
+            encoded = encoded[comma + 1 :]
+
+    try:
+        image_bytes = base64.b64decode(encoded, validate=True)
+    except (binascii.Error, ValueError):
+        raise HTTPException(status_code=400, detail="'poster_base64' is not valid base64.")
+
+    if not image_bytes:
+        raise HTTPException(
+            status_code=400, detail="'poster_base64' decoded to an empty image."
+        )
+    return image_bytes
+
+
+@app.post("/publish-post")
+async def publish_post_endpoint(payload: dict = Body(...)):
+    """
+    Publish an already-generated poster + caption to the Facebook Page.
+
+    Send JSON:
+
+        {
+          "poster_base64": "<base64 PNG bytes>",   # as returned by /create-post
+          "caption":       "<post text>",
+          "hashtags":      ["luxuryliving", ...],  # no '#' prefix needed
+          "cta":           "DM us to book a viewing"
+        }
+
+    The caption, hashtags (each '#'-prefixed) and CTA are combined - separated by
+    blank lines - into the final post text. Returns JSON:
+
+        { "post_id": "...", "post_url": "https://www.facebook.com/..." }
+
+    On a publishing failure the endpoint returns a clean 502 carrying Facebook's
+    own error message.
+    """
+    hashtags = payload.get("hashtags")
+    if hashtags is not None and not isinstance(hashtags, list):
+        raise HTTPException(status_code=400, detail="'hashtags' must be a list.")
+
+    image_bytes = _decode_poster(payload.get("poster_base64"))
+    message = _build_fb_message(payload.get("caption"), hashtags, payload.get("cta"))
+
+    UPLOAD_ROOT.mkdir(parents=True, exist_ok=True)
+    job_dir = Path(tempfile.mkdtemp(prefix="publish_", dir=UPLOAD_ROOT))
+
+    # Decode to a real file on disk (the publisher does a multipart file upload),
+    # then remove the job folder synchronously once we have the API response.
+    try:
+        image_path = job_dir / "poster.png"
+        image_path.write_bytes(image_bytes)
+
+        try:
+            result = publish_post(str(image_path), message)
+        except FacebookPublishError as exc:
+            # Same shape as /create-post's caption failure: a clean 502 with the
+            # underlying (Facebook) message rather than a stack trace.
+            raise HTTPException(status_code=502, detail=str(exc))
+    finally:
+        shutil.rmtree(job_dir, ignore_errors=True)
+
+    return {"post_id": result["post_id"], "post_url": result["post_url"]}

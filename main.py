@@ -15,6 +15,7 @@ Endpoints:
 
 import base64
 import binascii
+import logging
 import os
 import secrets
 import shutil
@@ -50,6 +51,9 @@ from app.poster_generator import generate_poster
 from app.copy_generator import CaptionError, generate_caption
 from app.facebook_publisher import FacebookPublishError, publish_post
 from app.click_tracker import get_clicks, record_click
+from app.airtable_client import AirtableError, create_post_record
+
+logger = logging.getLogger("propvibe.main")
 
 app = FastAPI()
 
@@ -448,13 +452,26 @@ async def publish_post_endpoint(payload: dict = Body(...)):
           "poster_base64": "<base64 PNG bytes>",   # as returned by /create-post
           "caption":       "<post text>",
           "hashtags":      ["luxuryliving", ...],  # no '#' prefix needed
-          "cta":           "DM us to book a viewing"
+          "cta":           "DM us to book a viewing",
+          "style_tag":     "Warm",                 # optional - from /create-post
+          "template_id":   "A"                     # optional - from /create-post
         }
 
-    The caption, hashtags (each '#'-prefixed) and CTA are combined - separated by
-    blank lines - into the final post text. Returns JSON:
+    Before publishing we mint a short tracking id and append its link
+    (``<BASE_URL>/t/<id>``) to the CTA, so clicks route through the tracking
+    endpoint. The caption, hashtags (each '#'-prefixed) and the link-carrying CTA
+    are combined - separated by blank lines - into the final post text.
 
-        { "post_id": "...", "post_url": "https://www.facebook.com/..." }
+    After a successful publish we record the post in Airtable (template, style,
+    caption, Facebook post id, tracking id). That logging is best-effort: if it
+    fails, the post has still gone live, so we report success with a note rather
+    than failing the request. Returns JSON:
+
+        {
+          "post_id": "...", "post_url": "https://www.facebook.com/...",
+          "tracking_id": "ab12cd34", "tracking_url": "https://host/t/ab12cd34",
+          "airtable_logged": true, "airtable_record_id": "rec..."
+        }
 
     On a publishing failure the endpoint returns a clean 502 carrying Facebook's
     own error message.
@@ -463,8 +480,25 @@ async def publish_post_endpoint(payload: dict = Body(...)):
     if hashtags is not None and not isinstance(hashtags, list):
         raise HTTPException(status_code=400, detail="'hashtags' must be a list.")
 
+    caption = payload.get("caption")
+    # Optional metadata threaded through from /create-post so we can learn from it
+    # later. Absent/None is fine - create_post_record simply skips empty fields.
+    style_tag = payload.get("style_tag")
+    template_id = payload.get("template_id")
+
     image_bytes = _decode_poster(payload.get("poster_base64"))
-    message = _build_fb_message(payload.get("caption"), hashtags, payload.get("cta"))
+
+    # Mint the tracking link and append it to the CTA. The link rides on the CTA
+    # only; the caption we store in Airtable stays clean (no link appended).
+    tracking_id = _generate_tracking_id()
+    tracking_url = _tracking_url(tracking_id)
+    raw_cta = payload.get("cta")
+    if isinstance(raw_cta, str) and raw_cta.strip():
+        cta_with_link = f"{raw_cta.strip()} {tracking_url}"
+    else:
+        cta_with_link = tracking_url
+
+    message = _build_fb_message(caption, hashtags, cta_with_link)
 
     UPLOAD_ROOT.mkdir(parents=True, exist_ok=True)
     job_dir = Path(tempfile.mkdtemp(prefix="publish_", dir=UPLOAD_ROOT))
@@ -484,4 +518,34 @@ async def publish_post_endpoint(payload: dict = Body(...)):
     finally:
         shutil.rmtree(job_dir, ignore_errors=True)
 
-    return {"post_id": result["post_id"], "post_url": result["post_url"]}
+    response = {
+        "post_id": result["post_id"],
+        "post_url": result["post_url"],
+        "tracking_id": tracking_id,
+        "tracking_url": tracking_url,
+    }
+
+    # The Facebook post already succeeded - that's the important part. Recording
+    # it in Airtable is best-effort: on failure we log it and flag it in the
+    # response, but still return success so the user isn't told the post failed
+    # when it didn't.
+    try:
+        record_id = create_post_record(
+            template_id=template_id,
+            style_tag=style_tag,
+            caption=caption if isinstance(caption, str) else "",
+            facebook_post_id=result["post_id"],
+            tracking_id=tracking_id,
+        )
+        response["airtable_logged"] = True
+        response["airtable_record_id"] = record_id
+    except AirtableError as exc:
+        logger.warning(
+            "Airtable logging failed after publishing post %s: %s",
+            result["post_id"],
+            exc,
+        )
+        response["airtable_logged"] = False
+        response["note"] = f"Post published to Facebook, but Airtable logging failed: {exc}"
+
+    return response

@@ -614,22 +614,30 @@ def sync_engagement_endpoint():
     Intended to be called periodically (e.g. by Make.com on a schedule) or by
     hand for testing. For each Post row in Airtable that has a facebook_post_id:
 
-      1. Ask the Facebook Graph API for the post's current like and comment
+      1. Read the click count recorded locally for that post's tracking id.
+      2. Ask the Facebook Graph API for the post's current like and comment
          counts (likes.summary(true) / comments.summary(true)).
-      2. Read the click count recorded locally for that post's tracking id.
       3. Write a new Engagement row (clicks + likes + comments), linked to the
          post, via airtable_client.log_engagement.
 
-    Failures are isolated per-post: if Facebook or Airtable errors for one post
-    we record that in the summary and carry on, so a single bad post can't abort
-    the whole run. Zero posts is not an error - it returns an empty summary.
+    Failures are isolated per-post so a single bad post can't abort the run:
+      * A Facebook read failure does NOT fail the post - clicks are independent
+        of Facebook, so we still log the clicks with likes/comments as 0 and mark
+        the detail with note "facebook_read_failed". The post counts as synced
+        (partial data).
+      * An Airtable write failure does fail the post (Airtable is the durable
+        store, so nothing was recorded).
+    Zero posts is not an error - it returns an empty summary.
 
     Returns JSON::
 
         {
           "posts_checked": 3, "synced": 2, "skipped": 1, "failed": 0,
           "details": [ {"facebook_post_id": "...", "clicks": 4, "likes": 10,
-                        "comments": 2, "logged": true}, ... ]
+                        "comments": 2, "logged": true},
+                       {"facebook_post_id": "...", "clicks": 3, "likes": 0,
+                        "comments": 0, "logged": true,
+                        "note": "facebook_read_failed"}, ... ]
         }
     """
     try:
@@ -663,23 +671,30 @@ def sync_engagement_endpoint():
             )
             continue
 
+        # Clicks come from our own tracking store, so we always have them -
+        # they're completely independent of Facebook's API. The Facebook
+        # like/comment read is best-effort: if it fails we still log the post
+        # with the clicks we have and likes/comments as 0, rather than losing the
+        # whole post to a Facebook API hiccup. The post still counts as synced,
+        # just with partial (clicks-only) data flagged in the detail.
         clicks = get_clicks(tracking_id)
+        facebook_read_failed = False
 
         try:
             engagement = get_post_engagement(str(fb_id))
+            likes = engagement["likes"]
+            comments = engagement["comments"]
         except FacebookPublishError as exc:
-            summary["failed"] += 1
-            summary["details"].append(
-                {"facebook_post_id": fb_id, "error": f"Facebook read failed: {exc}"}
-            )
-            continue
-
-        likes = engagement["likes"]
-        comments = engagement["comments"]
+            likes = 0
+            comments = 0
+            facebook_read_failed = True
+            logger.warning("Facebook engagement read failed for %s: %s", fb_id, exc)
 
         try:
             log_engagement(record_id, clicks, likes, comments)
         except AirtableError as exc:
+            # Airtable is the durable store - if we can't write at all, this post
+            # genuinely failed to sync.
             summary["failed"] += 1
             summary["details"].append(
                 {
@@ -693,14 +708,16 @@ def sync_engagement_endpoint():
             continue
 
         summary["synced"] += 1
-        summary["details"].append(
-            {
-                "facebook_post_id": fb_id,
-                "clicks": clicks,
-                "likes": likes,
-                "comments": comments,
-                "logged": True,
-            }
-        )
+        detail = {
+            "facebook_post_id": fb_id,
+            "clicks": clicks,
+            "likes": likes,
+            "comments": comments,
+            "logged": True,
+        }
+        if facebook_read_failed:
+            # Partial sync: clicks were logged, Facebook counts defaulted to 0.
+            detail["note"] = "facebook_read_failed"
+        summary["details"].append(detail)
 
     return summary

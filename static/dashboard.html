@@ -229,6 +229,10 @@
           poster_base64: payload.poster_base64,
           hashtags: payload.hashtags || [],
           cta: payload.cta || "",
+          // Carried through to /publish-post so the post is logged in Airtable
+          // with the style/template it was generated from (the learning loop).
+          style_tag: payload.style_tag || null,
+          template_id: payload.template_id || null,
         };
         resetFbButton();
 
@@ -262,6 +266,8 @@
             caption: captionBox.value,
             hashtags: currentPost.hashtags,
             cta: currentPost.cta,
+            style_tag: currentPost.style_tag,
+            template_id: currentPost.template_id,
           }),
         });
         const payload = await resp.json().catch(() => ({}));

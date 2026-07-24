@@ -24,12 +24,31 @@ from __future__ import annotations
 
 import json
 import os
+import random
 import re
 
 import anthropic
 
 # Haiku is fast and cheap, which is exactly what a one-shot caption needs.
 MODEL = "claude-haiku-4-5-20251001"
+
+# The fixed set of caption "styles" (tones) the app rotates through and learns
+# from. When there's no performance data yet we pick one at random so there's
+# variety to actually learn from; once /sync-engagement has data, the best
+# performer is fed back in as `preferred_style` (see get_style_performance).
+STYLE_TAGS = ("Modern", "Warm", "Bold")
+
+# Short tone briefs, keyed by lowercased style, injected into the prompt so each
+# style reads distinctly. An unknown style still works - it just gets a generic
+# "write in an X style" instruction.
+STYLE_GUIDANCE = {
+    "modern": "sleek, minimal and contemporary - clean lines, aspirational and "
+    "understated, quietly confident",
+    "warm": "warm, homely and inviting - lead with comfort, family and the "
+    "feeling of belonging",
+    "bold": "bold, high-energy and punchy - short confident sentences, a sense "
+    "of excitement and momentum",
+}
 
 # A caption + a handful of hashtags + one CTA line is tiny; 1024 is plenty of
 # headroom while still capping a runaway response.
@@ -60,14 +79,40 @@ class CaptionError(Exception):
     """A clean, user-safe failure from :func:`generate_caption`."""
 
 
-def _build_user_prompt(price: str, location: str, bedrooms: int, bathrooms: int) -> str:
-    """Assemble the listing details into a single instruction for Claude."""
+def _resolve_style(preferred_style: str | None) -> tuple[str, str]:
+    """
+    Decide which style to write in and return ``(style_tag, tone_brief)``.
+
+    If a non-empty ``preferred_style`` is given (the current best performer) we
+    honour it verbatim; its tone brief comes from STYLE_GUIDANCE when we know it,
+    otherwise a generic brief. With no preference we pick one of STYLE_TAGS at
+    random so there's variety to learn from.
+    """
+    if isinstance(preferred_style, str) and preferred_style.strip():
+        style = preferred_style.strip()
+    else:
+        style = random.choice(STYLE_TAGS)
+
+    brief = STYLE_GUIDANCE.get(style.lower(), f"written in a distinctly {style} style")
+    return style, brief
+
+
+def _build_user_prompt(
+    price: str,
+    location: str,
+    bedrooms: int,
+    bathrooms: int,
+    style: str,
+    tone_brief: str,
+) -> str:
+    """Assemble the listing details + tone into a single instruction for Claude."""
     return (
         "Write the social media copy for this property listing:\n"
         f"- Price: {price}\n"
         f"- Location: {location}\n"
         f"- Bedrooms: {bedrooms}\n"
         f"- Bathrooms: {bathrooms}\n\n"
+        f"TONE: Write the caption in a {style} style - {tone_brief}.\n\n"
         "Return the JSON object described in the system instructions."
     )
 
@@ -153,19 +198,31 @@ def _normalise(parsed: dict) -> dict:
     }
 
 
-def generate_caption(price: str, location: str, bedrooms: int, bathrooms: int) -> dict:
+def generate_caption(
+    price: str,
+    location: str,
+    bedrooms: int,
+    bathrooms: int,
+    preferred_style: str | None = None,
+) -> dict:
     """
     Generate social copy for a listing via Claude Haiku.
 
     Args:
-        price:     Pre-formatted price string, e.g. "RM 450,000".
-        location:  Short location line, e.g. "Mont Kiara, Kuala Lumpur".
-        bedrooms:  Number of bedrooms.
-        bathrooms: Number of bathrooms.
+        price:           Pre-formatted price string, e.g. "RM 450,000".
+        location:        Short location line, e.g. "Mont Kiara, Kuala Lumpur".
+        bedrooms:        Number of bedrooms.
+        bathrooms:       Number of bathrooms.
+        preferred_style: Optional style to lean the caption's tone toward - the
+            current best-performing style from get_style_performance(). When
+            omitted, a style from STYLE_TAGS is chosen at random so there's
+            variety to learn from.
 
     Returns:
-        dict with keys "caption" (str), "hashtags" (list[str], no '#') and
-        "cta" (str).
+        dict with keys "caption" (str), "hashtags" (list[str], no '#'), "cta"
+        (str) and "style_tag" (str) - the style actually used, which the caller
+        records in Airtable so the learning loop knows what to attribute
+        engagement to.
 
     Raises:
         CaptionError: for any failure - missing/invalid API key, rate limit,
@@ -180,6 +237,8 @@ def generate_caption(price: str, location: str, bedrooms: int, bathrooms: int) -
             "your Anthropic API key, then restart the server."
         )
 
+    style_tag, tone_brief = _resolve_style(preferred_style)
+
     client = anthropic.Anthropic()
 
     try:
@@ -190,7 +249,9 @@ def generate_caption(price: str, location: str, bedrooms: int, bathrooms: int) -
             messages=[
                 {
                     "role": "user",
-                    "content": _build_user_prompt(price, location, bedrooms, bathrooms),
+                    "content": _build_user_prompt(
+                        price, location, bedrooms, bathrooms, style_tag, tone_brief
+                    ),
                 }
             ],
         )
@@ -222,4 +283,8 @@ def generate_caption(price: str, location: str, bedrooms: int, bathrooms: int) -
     if not text.strip():
         raise CaptionError("Claude returned an empty response. Please try again.")
 
-    return _normalise(_extract_json(text))
+    result = _normalise(_extract_json(text))
+    # Report back which style we wrote in so the caller can attribute engagement
+    # to it in Airtable.
+    result["style_tag"] = style_tag
+    return result

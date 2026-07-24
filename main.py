@@ -47,7 +47,7 @@ load_dotenv(Path(__file__).resolve().parent / ".env")
 # NOTE: this is the `from X import Y` form on purpose - it binds only
 # `generate_poster`, so the `app` package name never lands in this module's
 # namespace and cannot shadow the `app = FastAPI()` instance below.
-from app.poster_generator import generate_poster
+from app.poster_generator import GRID_TEMPLATE_MIN_PHOTOS, generate_poster
 from app.copy_generator import CaptionError, generate_caption
 from app.facebook_publisher import (
     FacebookPublishError,
@@ -59,6 +59,7 @@ from app.airtable_client import (
     AirtableError,
     create_post_record,
     get_posts,
+    get_style_performance,
     log_engagement,
 )
 
@@ -311,6 +312,32 @@ def _save_uploads(uploads: list[UploadFile], job_dir: Path) -> list[str]:
     return saved_paths
 
 
+def _best_performing_style() -> str | None:
+    """
+    The current best-performing caption style, or None if we can't tell yet.
+
+    Reads average engagement per style from Airtable and returns the top one.
+    This is only a hint for caption generation, so it must never break /create-
+    post: any problem (Airtable unconfigured, API error, no data yet) yields None
+    and generate_caption falls back to a random style. get_style_performance
+    already degrades to {} on failure; the broad guard here is belt-and-braces.
+    """
+    try:
+        performance = get_style_performance()
+    except Exception as exc:  # noqa: BLE001 - a hint must never crash the request
+        logger.warning("Could not read style performance for the caption hint: %s", exc)
+        return None
+
+    if not performance:
+        return None
+    return max(performance, key=performance.get)
+
+
+def _template_id_for(photo_count: int) -> str:
+    """Which poster template generate_poster() will pick for this many photos."""
+    return "Template A" if photo_count < GRID_TEMPLATE_MIN_PHOTOS else "Template B"
+
+
 @app.post("/create-post")
 async def create_post_endpoint(
     # Same manual-validation approach as /generate-poster so a missing field is
@@ -324,14 +351,21 @@ async def create_post_endpoint(
     """
     Build the poster AND the social caption in one call.
 
-    Same multipart inputs as /generate-poster. Returns JSON:
+    Same multipart inputs as /generate-poster. Before writing the caption we ask
+    Airtable which caption style has been performing best and lean the tone that
+    way (falling back to a random style when there's no data yet). Returns JSON:
 
         {
           "caption":       "<engaging post text>",
           "hashtags":      ["luxuryliving", ...],   # no '#' prefix
           "cta":           "DM us to book a viewing",
+          "style_tag":     "Warm",                  # style the caption was written in
+          "template_id":   "Template A",            # poster template used
           "poster_base64": "<base64 PNG bytes>"     # no data: prefix
         }
+
+    style_tag and template_id are echoed back so the front end can hand them to
+    /publish-post, which records them in Airtable for the learning loop.
 
     The poster is inlined as base64 so the front end can render it immediately
     without a separate file-download route.
@@ -374,10 +408,20 @@ async def create_post_endpoint(
 
         poster_base64 = base64.b64encode(output_path.read_bytes()).decode("ascii")
 
+        # Feed the learning loop back in: lean the caption toward whichever style
+        # has performed best so far (None -> generate_caption picks one at random).
+        preferred_style = _best_performing_style()
+
         # The caption call hits the network and may fail for reasons the user
         # can act on (missing key, rate limit, ...). Surface the clean message.
         try:
-            copy = generate_caption(price, location, bedroom_count, bathroom_count)
+            copy = generate_caption(
+                price,
+                location,
+                bedroom_count,
+                bathroom_count,
+                preferred_style=preferred_style,
+            )
         except CaptionError as exc:
             raise HTTPException(status_code=502, detail=str(exc))
     finally:
@@ -387,6 +431,8 @@ async def create_post_endpoint(
         "caption": copy["caption"],
         "hashtags": copy["hashtags"],
         "cta": copy["cta"],
+        "style_tag": copy["style_tag"],
+        "template_id": _template_id_for(len(uploads)),
         "poster_base64": poster_base64,
     }
 

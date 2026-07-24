@@ -15,6 +15,8 @@ Endpoints:
 
 import base64
 import binascii
+import os
+import secrets
 import shutil
 import tempfile
 import uuid
@@ -22,7 +24,7 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 from fastapi import Body, FastAPI, File, Form, HTTPException, UploadFile
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, RedirectResponse
 from starlette.background import BackgroundTask
 
 # Load variables from a local .env file (e.g. ANTHROPIC_API_KEY,
@@ -47,6 +49,7 @@ load_dotenv(Path(__file__).resolve().parent / ".env")
 from app.poster_generator import generate_poster
 from app.copy_generator import CaptionError, generate_caption
 from app.facebook_publisher import FacebookPublishError, publish_post
+from app.click_tracker import get_clicks, record_click
 
 app = FastAPI()
 
@@ -63,6 +66,33 @@ STATIC_DIR = Path(__file__).resolve().parent / "static"
 # Anything larger than this per photo is almost certainly not a listing shot.
 MAX_PHOTO_BYTES = 15 * 1024 * 1024  # 15 MB
 
+# Public base URL of THIS server, used to build the tracking links embedded in
+# posts. Locally the default is fine; in production (Railway) set BASE_URL to the
+# deployed public domain so the link a lead clicks resolves back here. See
+# .env.example.
+BASE_URL = "http://localhost:8000"
+
+
+def _base_url() -> str:
+    """The server's public base URL (env BASE_URL), without a trailing slash."""
+    configured = os.environ.get("BASE_URL")
+    return (configured.strip() if configured and configured.strip() else BASE_URL).rstrip("/")
+
+
+def _generate_tracking_id() -> str:
+    """
+    A short, URL-safe, hard-to-guess id for a post's tracking link.
+
+    ``token_urlsafe(6)`` yields 8 characters from [A-Za-z0-9_-] - short enough to
+    tack onto a CTA, random enough to not collide across a demo's worth of posts.
+    """
+    return secrets.token_urlsafe(6)
+
+
+def _tracking_url(tracking_id: str) -> str:
+    """The full clickable tracking link for a post, e.g. https://host/t/ab12cd34."""
+    return f"{_base_url()}/t/{tracking_id}"
+
 
 @app.get("/")
 def read_root():
@@ -76,6 +106,35 @@ def dashboard():
     if not page.exists():
         raise HTTPException(status_code=404, detail="Dashboard page not found.")
     return FileResponse(page, media_type="text/html")
+
+
+@app.get("/listing")
+def listing():
+    """
+    The placeholder 'listing details' landing page a tracking link redirects to.
+
+    Stands in for wherever a real lead would land after clicking through from a
+    social post.
+    """
+    page = STATIC_DIR / "listing.html"
+    if not page.exists():
+        raise HTTPException(status_code=404, detail="Listing page not found.")
+    return FileResponse(page, media_type="text/html")
+
+
+@app.get("/t/{tracking_id}")
+def track_click(tracking_id: str):
+    """
+    Record a click on a post's tracking link, then redirect to the listing page.
+
+    Every published post's CTA carries a ``/t/{tracking_id}`` link. When a lead
+    clicks it we bump a local counter (see app.click_tracker) keyed by that id -
+    fast, and independent of Airtable being reachable - then 302 them on to the
+    placeholder listing page. /sync-engagement later folds these click counts
+    into each post's Airtable engagement row.
+    """
+    record_click(tracking_id)
+    return RedirectResponse(url="/listing", status_code=302)
 
 
 def _parse_count(raw: str | None, field: str) -> int:

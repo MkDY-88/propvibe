@@ -154,3 +154,6 @@ venv/
 
 # Uploads scratch space for /generate-poster (per-request, auto-cleaned)
 uploads/
+
+# Local click-tracking counter file (app.click_tracker); regenerated at runtime
+data/

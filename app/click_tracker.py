@@ -36,6 +36,14 @@ logger = logging.getLogger("propvibe.clicks")
 DATA_DIR = Path(__file__).resolve().parent.parent / "data"
 CLICKS_FILE = DATA_DIR / "tracking_clicks.json"
 
+# Maps a published post's facebook_post_id -> its tracking_id. Recorded at
+# publish time so /sync-engagement can find a post's clicks by its Facebook id
+# even when the Airtable Posts table has no "Tracking ID" column to store the
+# tracking id in. Clicks arrive keyed by tracking_id (that's all the /t/{id} URL
+# carries); this map lets sync bridge facebook_post_id -> tracking_id -> clicks
+# without depending on Airtable's schema.
+LINKS_FILE = DATA_DIR / "post_links.json"
+
 _lock = threading.Lock()
 
 
@@ -98,3 +106,62 @@ def get_clicks(tracking_id: str) -> int:
         return 0
     with _lock:
         return _load().get(tracking_id, 0)
+
+
+def _load_links() -> dict[str, str]:
+    """Load the facebook_post_id -> tracking_id map, tolerating a missing file."""
+    try:
+        with LINKS_FILE.open("r", encoding="utf-8") as handle:
+            data = json.load(handle)
+    except (OSError, ValueError):
+        return {}
+
+    if not isinstance(data, dict):
+        return {}
+    return {str(k): str(v) for k, v in data.items() if v is not None}
+
+
+def _save_links(links: dict[str, str]) -> None:
+    """Persist the post-link map via a temp-file-then-rename."""
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    tmp = LINKS_FILE.with_name(LINKS_FILE.name + ".tmp")
+    with tmp.open("w", encoding="utf-8") as handle:
+        json.dump(links, handle)
+    tmp.replace(LINKS_FILE)
+
+
+def link_post(facebook_post_id: str, tracking_id: str) -> None:
+    """
+    Remember which ``tracking_id`` belongs to a published post.
+
+    Called at publish time. Lets /sync-engagement resolve a post's clicks from
+    its facebook_post_id (which IS stored in Airtable) without relying on the
+    Airtable Posts table having a "Tracking ID" column. Blank ids are ignored;
+    a persistence failure is logged, not raised.
+    """
+    facebook_post_id = (facebook_post_id or "").strip()
+    tracking_id = (tracking_id or "").strip()
+    if not facebook_post_id or not tracking_id:
+        return
+
+    with _lock:
+        links = _load_links()
+        links[facebook_post_id] = tracking_id
+        try:
+            _save_links(links)
+        except OSError as exc:
+            logger.warning(
+                "Could not persist post link %r -> %r: %s",
+                facebook_post_id,
+                tracking_id,
+                exc,
+            )
+
+
+def tracking_id_for_post(facebook_post_id: str) -> str | None:
+    """Return the tracking_id recorded for a facebook_post_id, or None."""
+    facebook_post_id = (facebook_post_id or "").strip()
+    if not facebook_post_id:
+        return None
+    with _lock:
+        return _load_links().get(facebook_post_id)

@@ -54,7 +54,12 @@ from app.facebook_publisher import (
     get_post_engagement,
     publish_post,
 )
-from app.click_tracker import get_clicks, record_click
+from app.click_tracker import (
+    get_clicks,
+    link_post,
+    record_click,
+    tracking_id_for_post,
+)
 from app.airtable_client import (
     AirtableError,
     create_post_record,
@@ -573,6 +578,13 @@ async def publish_post_endpoint(payload: dict = Body(...)):
     finally:
         shutil.rmtree(job_dir, ignore_errors=True)
 
+    # Record the facebook_post_id -> tracking_id link locally, right after the
+    # publish succeeds. This is what lets /sync-engagement attribute clicks to
+    # this post by its Facebook id, independent of whether Airtable stores the
+    # tracking id (the Posts table may have no "Tracking ID" column). Do this
+    # before the Airtable write so the link survives even if that write fails.
+    link_post(result["post_id"], tracking_id)
+
     response = {
         "post_id": result["post_id"],
         "post_url": result["post_url"],
@@ -661,7 +673,6 @@ def sync_engagement_endpoint():
     for post in posts:
         record_id = post.get("record_id")
         fb_id = post.get("facebook_post_id")
-        tracking_id = post.get("tracking_id") or ""
 
         # A post with no Facebook id can't have its engagement fetched - skip it.
         if not fb_id:
@@ -671,6 +682,14 @@ def sync_engagement_endpoint():
             )
             continue
 
+        # Resolve the tracking id for this post. Prefer the value stored on the
+        # Airtable record, but fall back to the local facebook_post_id ->
+        # tracking_id map recorded at publish time - the Posts table may have no
+        # "Tracking ID" column, in which case create_post_record couldn't store
+        # it and post["tracking_id"] comes back None. Without this fallback,
+        # clicks would silently read as 0 for every post.
+        tracking_id = post.get("tracking_id") or tracking_id_for_post(str(fb_id)) or ""
+
         # Clicks come from our own tracking store, so we always have them -
         # they're completely independent of Facebook's API. The Facebook
         # like/comment read is best-effort: if it fails we still log the post
@@ -678,6 +697,12 @@ def sync_engagement_endpoint():
         # whole post to a Facebook API hiccup. The post still counts as synced,
         # just with partial (clicks-only) data flagged in the detail.
         clicks = get_clicks(tracking_id)
+        logger.info(
+            "sync: post fb=%s tracking_id=%r -> clicks=%d",
+            fb_id,
+            tracking_id or None,
+            clicks,
+        )
         facebook_read_failed = False
 
         try:

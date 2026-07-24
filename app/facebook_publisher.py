@@ -159,3 +159,65 @@ def publish_post(image_path: str, message: str) -> dict:
         "post_id": post_id,
         "post_url": f"https://www.facebook.com/{post_id}",
     }
+
+
+def _summary_count(section: object) -> int:
+    """Pull ``.summary.total_count`` out of a Graph API edge, defaulting to 0."""
+    if isinstance(section, dict):
+        summary = section.get("summary")
+        if isinstance(summary, dict):
+            count = summary.get("total_count")
+            if isinstance(count, (int, float)) and not isinstance(count, bool):
+                return int(count)
+    return 0
+
+
+def get_post_engagement(post_id: str) -> dict:
+    """
+    Fetch the current like and comment counts for a published post.
+
+    Uses the Graph API summary counts in a single request::
+
+        GET /{post_id}?fields=likes.summary(true),comments.summary(true)
+
+    Args:
+        post_id: The Facebook post id (as returned by :func:`publish_post`).
+
+    Returns:
+        dict with integer "likes" and "comments" counts.
+
+    Raises:
+        FacebookPublishError: for a missing token, a network error, or Facebook
+            returning an error (carrying Facebook's own message). Safe to show a
+            user. Callers that sync many posts should catch this per-post so one
+            failure doesn't abort the whole run.
+    """
+    token, _ = _require_credentials()
+
+    url = f"https://graph.facebook.com/{GRAPH_API_VERSION}/{post_id}"
+    params = {
+        "fields": "likes.summary(true),comments.summary(true)",
+        "access_token": token,
+    }
+
+    try:
+        response = httpx.get(url, params=params, timeout=REQUEST_TIMEOUT_SECONDS)
+    except httpx.RequestError as exc:
+        raise FacebookPublishError(
+            f"Could not reach Facebook to read engagement (network error): {exc}."
+        )
+
+    if not response.is_success:
+        raise FacebookPublishError(_extract_error_message(response))
+
+    try:
+        payload = response.json()
+    except ValueError:
+        raise FacebookPublishError(
+            "Facebook returned an unreadable response when reading engagement."
+        )
+
+    return {
+        "likes": _summary_count(payload.get("likes")),
+        "comments": _summary_count(payload.get("comments")),
+    }

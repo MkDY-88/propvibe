@@ -449,6 +449,46 @@ def log_engagement(
     return _create_record(_engagement_table(), fields)
 
 
+def get_posts() -> list[dict]:
+    """
+    Return every row in the Posts table, normalised for the sync flow.
+
+    Each item is a dict::
+
+        {
+          "record_id":        "recXXXXXXXXXXXXXX",   # Airtable record id
+          "facebook_post_id": "1234_5678" | None,
+          "tracking_id":      "ab12cd34" | None,
+          "style_tag":        "Warm" | None,
+        }
+
+    Field values are read defensively (exact name, then case-insensitive, then
+    keyword) so a renamed column degrades to None rather than crashing.
+
+    Raises:
+        AirtableError: for missing credentials or an API/network error. Callers
+            (e.g. /sync-engagement) surface this as a clean error.
+    """
+    records = _list_records(_posts_table())
+    names = _posts_fields()
+
+    posts: list[dict] = []
+    for record in records:
+        fields = record.get("fields", {})
+        fb_id = _read_field(fields, names["facebook_post_id"], "facebook")
+        tracking = _read_field(fields, names["tracking_id"], "tracking")
+        style = _read_field(fields, names["style_tag"], "style")
+        posts.append(
+            {
+                "record_id": record.get("id"),
+                "facebook_post_id": str(fb_id).strip() if fb_id else None,
+                "tracking_id": str(tracking).strip() if tracking else None,
+                "style_tag": str(style).strip() if style else None,
+            }
+        )
+    return posts
+
+
 def get_style_performance() -> dict[str, float]:
     """
     Average engagement per caption style, learned from historical posts.

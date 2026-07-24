@@ -49,9 +49,18 @@ load_dotenv(Path(__file__).resolve().parent / ".env")
 # namespace and cannot shadow the `app = FastAPI()` instance below.
 from app.poster_generator import generate_poster
 from app.copy_generator import CaptionError, generate_caption
-from app.facebook_publisher import FacebookPublishError, publish_post
+from app.facebook_publisher import (
+    FacebookPublishError,
+    get_post_engagement,
+    publish_post,
+)
 from app.click_tracker import get_clicks, record_click
-from app.airtable_client import AirtableError, create_post_record
+from app.airtable_client import (
+    AirtableError,
+    create_post_record,
+    get_posts,
+    log_engagement,
+)
 
 logger = logging.getLogger("propvibe.main")
 
@@ -549,3 +558,103 @@ async def publish_post_endpoint(payload: dict = Body(...)):
         response["note"] = f"Post published to Facebook, but Airtable logging failed: {exc}"
 
     return response
+
+
+@app.post("/sync-engagement")
+def sync_engagement_endpoint():
+    """
+    Pull fresh engagement for every logged post and record it in Airtable.
+
+    Intended to be called periodically (e.g. by Make.com on a schedule) or by
+    hand for testing. For each Post row in Airtable that has a facebook_post_id:
+
+      1. Ask the Facebook Graph API for the post's current like and comment
+         counts (likes.summary(true) / comments.summary(true)).
+      2. Read the click count recorded locally for that post's tracking id.
+      3. Write a new Engagement row (clicks + likes + comments), linked to the
+         post, via airtable_client.log_engagement.
+
+    Failures are isolated per-post: if Facebook or Airtable errors for one post
+    we record that in the summary and carry on, so a single bad post can't abort
+    the whole run. Zero posts is not an error - it returns an empty summary.
+
+    Returns JSON::
+
+        {
+          "posts_checked": 3, "synced": 2, "skipped": 1, "failed": 0,
+          "details": [ {"facebook_post_id": "...", "clicks": 4, "likes": 10,
+                        "comments": 2, "logged": true}, ... ]
+        }
+    """
+    try:
+        posts = get_posts()
+    except AirtableError as exc:
+        # Can't read Airtable at all (missing creds / API error) - a clean 502.
+        raise HTTPException(status_code=502, detail=str(exc))
+
+    summary: dict = {
+        "posts_checked": len(posts),
+        "synced": 0,
+        "skipped": 0,
+        "failed": 0,
+        "details": [],
+    }
+
+    if not posts:
+        summary["message"] = "No posts found in Airtable yet - nothing to sync."
+        return summary
+
+    for post in posts:
+        record_id = post.get("record_id")
+        fb_id = post.get("facebook_post_id")
+        tracking_id = post.get("tracking_id") or ""
+
+        # A post with no Facebook id can't have its engagement fetched - skip it.
+        if not fb_id:
+            summary["skipped"] += 1
+            summary["details"].append(
+                {"record_id": record_id, "skipped": True, "reason": "no facebook_post_id"}
+            )
+            continue
+
+        clicks = get_clicks(tracking_id)
+
+        try:
+            engagement = get_post_engagement(str(fb_id))
+        except FacebookPublishError as exc:
+            summary["failed"] += 1
+            summary["details"].append(
+                {"facebook_post_id": fb_id, "error": f"Facebook read failed: {exc}"}
+            )
+            continue
+
+        likes = engagement["likes"]
+        comments = engagement["comments"]
+
+        try:
+            log_engagement(record_id, clicks, likes, comments)
+        except AirtableError as exc:
+            summary["failed"] += 1
+            summary["details"].append(
+                {
+                    "facebook_post_id": fb_id,
+                    "clicks": clicks,
+                    "likes": likes,
+                    "comments": comments,
+                    "error": f"Airtable write failed: {exc}",
+                }
+            )
+            continue
+
+        summary["synced"] += 1
+        summary["details"].append(
+            {
+                "facebook_post_id": fb_id,
+                "clicks": clicks,
+                "likes": likes,
+                "comments": comments,
+                "logged": True,
+            }
+        )
+
+    return summary

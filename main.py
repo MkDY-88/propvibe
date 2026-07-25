@@ -11,6 +11,7 @@ Endpoints:
   POST /generate-poster - returns the poster PNG directly
   POST /create-post   - returns poster (base64) + Claude-written caption as JSON
   POST /publish-post  - publishes a poster + caption to a Facebook Page
+  POST /sync-engagement - refreshes engagement stats (requires X-Sync-Secret header)
 """
 
 import base64
@@ -24,7 +25,7 @@ import uuid
 from pathlib import Path
 
 from dotenv import load_dotenv
-from fastapi import Body, FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import Body, FastAPI, File, Form, Header, HTTPException, UploadFile
 from fastapi.responses import FileResponse, RedirectResponse
 from starlette.background import BackgroundTask
 
@@ -619,7 +620,7 @@ async def publish_post_endpoint(payload: dict = Body(...)):
 
 
 @app.post("/sync-engagement")
-def sync_engagement_endpoint():
+def sync_engagement_endpoint(x_sync_secret: str | None = Header(default=None)):
     """
     Pull fresh engagement for every logged post and record it in Airtable.
 
@@ -651,7 +652,18 @@ def sync_engagement_endpoint():
                         "comments": 0, "logged": true,
                         "note": "facebook_read_failed"}, ... ]
         }
+
+    Requires the ``X-Sync-Secret`` header to match the ``SYNC_ENGAGEMENT_SECRET``
+    env var - this endpoint has no other auth and would otherwise let anyone
+    with the URL trigger Facebook API calls and duplicate Airtable rows.
     """
+    expected_secret = os.environ.get("SYNC_ENGAGEMENT_SECRET")
+    if not expected_secret:
+        # Fail closed: an unconfigured secret must not mean "no auth required".
+        raise HTTPException(status_code=503, detail="SYNC_ENGAGEMENT_SECRET is not configured")
+    if not x_sync_secret or not secrets.compare_digest(x_sync_secret, expected_secret):
+        raise HTTPException(status_code=401, detail="Missing or invalid X-Sync-Secret header")
+
     try:
         posts = get_posts()
     except AirtableError as exc:

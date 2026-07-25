@@ -24,7 +24,6 @@ from __future__ import annotations
 
 import json
 import os
-import random
 import re
 
 import anthropic
@@ -33,9 +32,10 @@ import anthropic
 MODEL = "claude-haiku-4-5-20251001"
 
 # The fixed set of caption "styles" (tones) the app rotates through and learns
-# from. When there's no performance data yet we pick one at random so there's
-# variety to actually learn from; once /sync-engagement has data, the best
-# performer is fed back in as `preferred_style` (see get_style_performance).
+# from. main.py resolves which single style to use for a given request - the
+# best performer once /sync-engagement has data, or a random pick from this
+# tuple when there's none yet - and passes that same style_tag into both this
+# module and the poster generator, so caption and poster always agree.
 STYLE_TAGS = ("Modern", "Warm", "Bold")
 
 # Short tone briefs, keyed by lowercased style, injected into the prompt so each
@@ -79,20 +79,16 @@ class CaptionError(Exception):
     """A clean, user-safe failure from :func:`generate_caption`."""
 
 
-def _resolve_style(preferred_style: str | None) -> tuple[str, str]:
+def _resolve_style(preferred_style: str) -> tuple[str, str]:
     """
-    Decide which style to write in and return ``(style_tag, tone_brief)``.
+    Return ``(style_tag, tone_brief)`` for the given style.
 
-    If a non-empty ``preferred_style`` is given (the current best performer) we
-    honour it verbatim; its tone brief comes from STYLE_GUIDANCE when we know it,
-    otherwise a generic brief. With no preference we pick one of STYLE_TAGS at
-    random so there's variety to learn from.
+    Resolution (best-performer lookup, random fallback when there's no
+    engagement data yet) now happens once in main.py, so the same style_tag can
+    also be handed to the poster generator. This function just trusts what it's
+    given and looks up (or synthesises) the matching tone brief.
     """
-    if isinstance(preferred_style, str) and preferred_style.strip():
-        style = preferred_style.strip()
-    else:
-        style = random.choice(STYLE_TAGS)
-
+    style = preferred_style.strip()
     brief = STYLE_GUIDANCE.get(style.lower(), f"written in a distinctly {style} style")
     return style, brief
 
@@ -203,7 +199,7 @@ def generate_caption(
     location: str,
     bedrooms: int,
     bathrooms: int,
-    preferred_style: str | None = None,
+    preferred_style: str,
 ) -> dict:
     """
     Generate social copy for a listing via Claude Haiku.
@@ -213,10 +209,11 @@ def generate_caption(
         location:        Short location line, e.g. "Mont Kiara, Kuala Lumpur".
         bedrooms:        Number of bedrooms.
         bathrooms:       Number of bathrooms.
-        preferred_style: Optional style to lean the caption's tone toward - the
-            current best-performing style from get_style_performance(). When
-            omitted, a style from STYLE_TAGS is chosen at random so there's
-            variety to learn from.
+        preferred_style: The style to write in - a non-empty string. The
+            caller (main.py) resolves this once per request, from the current
+            best-performing style in Airtable or a random STYLE_TAGS pick when
+            there's no data yet, and passes the identical value to the poster
+            generator too, so caption and poster always share one style.
 
     Returns:
         dict with keys "caption" (str), "hashtags" (list[str], no '#'), "cta"

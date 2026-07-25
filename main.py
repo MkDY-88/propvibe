@@ -18,6 +18,7 @@ import base64
 import binascii
 import logging
 import os
+import random
 import secrets
 import shutil
 import tempfile
@@ -49,7 +50,7 @@ load_dotenv(Path(__file__).resolve().parent / ".env")
 # `generate_poster`, so the `app` package name never lands in this module's
 # namespace and cannot shadow the `app = FastAPI()` instance below.
 from app.poster_generator import GRID_TEMPLATE_MIN_PHOTOS, generate_poster
-from app.copy_generator import CaptionError, generate_caption
+from app.copy_generator import STYLE_TAGS, CaptionError, generate_caption
 from app.facebook_publisher import (
     FacebookPublishError,
     get_post_engagement,
@@ -357,9 +358,12 @@ async def create_post_endpoint(
     """
     Build the poster AND the social caption in one call.
 
-    Same multipart inputs as /generate-poster. Before writing the caption we ask
-    Airtable which caption style has been performing best and lean the tone that
-    way (falling back to a random style when there's no data yet). Returns JSON:
+    Same multipart inputs as /generate-poster. Before building either one, we
+    resolve a single style_tag for the whole request - whichever style has been
+    performing best in Airtable, or a random pick from STYLE_TAGS when there's
+    no data yet - and pass that identical value into both generate_poster()
+    (which picks a colour palette) and generate_caption() (which picks a tone),
+    so the two can never disagree. Returns JSON:
 
         {
           "caption":       "<engaging post text>",
@@ -397,6 +401,13 @@ async def create_post_endpoint(
     try:
         saved_paths = _save_uploads(uploads, job_dir)
 
+        # Resolve ONE style for the whole request, before either generator runs:
+        # whichever style has performed best so far, or a random pick from
+        # STYLE_TAGS when there's no engagement data yet. Doing this here (not
+        # inside generate_poster()/generate_caption()) guarantees the poster's
+        # palette and the caption's tone always match on a given post.
+        style_tag = _best_performing_style() or random.choice(STYLE_TAGS)
+
         output_path = job_dir / f"poster_{uuid.uuid4().hex[:8]}.png"
         try:
             generate_poster(
@@ -406,6 +417,7 @@ async def create_post_endpoint(
                 bedrooms=bedroom_count,
                 bathrooms=bathroom_count,
                 output_path=str(output_path),
+                style_tag=style_tag,
             )
         except ValueError as exc:
             # Belt-and-braces: generate_poster() raises this for an empty photo
@@ -413,10 +425,6 @@ async def create_post_endpoint(
             raise HTTPException(status_code=400, detail=str(exc))
 
         poster_base64 = base64.b64encode(output_path.read_bytes()).decode("ascii")
-
-        # Feed the learning loop back in: lean the caption toward whichever style
-        # has performed best so far (None -> generate_caption picks one at random).
-        preferred_style = _best_performing_style()
 
         # The caption call hits the network and may fail for reasons the user
         # can act on (missing key, rate limit, ...). Surface the clean message.
@@ -426,7 +434,7 @@ async def create_post_endpoint(
                 location,
                 bedroom_count,
                 bathroom_count,
-                preferred_style=preferred_style,
+                preferred_style=style_tag,
             )
         except CaptionError as exc:
             raise HTTPException(status_code=502, detail=str(exc))

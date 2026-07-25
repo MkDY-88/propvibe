@@ -36,14 +36,63 @@ from PIL import Image, ImageDraw, ImageFont, ImageOps
 CANVAS_SIZE = 1080  # Square poster: 1080 x 1080 px
 
 # Brand colours
-NAVY = (26, 43, 76)  # #1A2B4C - background + text panel
-GOLD = (212, 175, 55)  # #D4AF37 - price
+NAVY = (26, 43, 76)  # #1A2B4C - default band/background + price accent base
+GOLD = (212, 175, 55)  # #D4AF37 - default price accent
 WHITE = (255, 255, 255)  # location
 LIGHT_GRAY = (200, 205, 215)  # bed / bath line
 PLACEHOLDER_GRAY = (60, 68, 84)  # shown if a photo fails to load
 
 # Template A: the dark fade sits over the bottom 350px of the hero photo
 GRADIENT_HEIGHT = 350
+
+# ---------------------------------------------------------------------------
+# STYLE PALETTES
+# Each caption style (see app.copy_generator.STYLE_TAGS) gets its own band
+# colour, accent colour (price text + the "+N more" pill), and Template A fade
+# shape, so the poster's visual look actually varies with style and not just
+# the caption's wording. Keyed by *lowercase* style tag.
+#
+# style_tag=None or an unrecognised style falls back to DEFAULT_PALETTE (the
+# original navy/gold look), so callers that don't care about style at all -
+# /generate-poster, test_poster.py - keep their exact existing appearance.
+# ---------------------------------------------------------------------------
+
+DEFAULT_PALETTE = {
+    "band": NAVY,
+    "accent": GOLD,
+    "gradient_height": GRADIENT_HEIGHT,
+    "gradient_exponent": 2,  # eases in slowly, ramps up near the bottom
+}
+
+STYLE_PALETTES = {
+    "modern": {
+        "band": (17, 24, 39),  # near-black cool slate
+        "accent": (196, 200, 209),  # cool platinum/silver
+        "gradient_height": 300,  # tighter, cleaner fade
+        "gradient_exponent": 2,
+    },
+    "warm": {
+        "band": (74, 48, 34),  # warm espresso brown
+        "accent": (224, 160, 90),  # copper/amber
+        "gradient_height": 400,  # longer, softer fade
+        "gradient_exponent": 2,
+    },
+    "bold": {
+        "band": (15, 15, 20),  # near-black, max contrast
+        "accent": (255, 87, 51),  # vivid red-orange
+        "gradient_height": 300,  # short, punchy fade
+        "gradient_exponent": 1,  # linear - darkens sooner, higher contrast
+    },
+}
+
+
+def _palette_for(style_tag: str | None) -> dict:
+    """Look up the palette for a style tag, falling back to DEFAULT_PALETTE."""
+    if isinstance(style_tag, str) and style_tag.strip():
+        palette = STYLE_PALETTES.get(style_tag.strip().lower())
+        if palette is not None:
+            return palette
+    return DEFAULT_PALETTE
 
 # Template B: photos live in the top 700px, text band is the bottom 380px
 GRID_HEIGHT = 700
@@ -166,34 +215,38 @@ def _cell_image(path: str, width: int, height: int) -> Image.Image:
 # ---------------------------------------------------------------------------
 
 
-def _draw_gradient_overlay(canvas: Image.Image) -> None:
+def _draw_gradient_overlay(canvas: Image.Image, palette: dict) -> None:
     """
-    Fade the bottom `GRADIENT_HEIGHT` pixels from transparent into solid navy.
+    Fade the bottom `palette["gradient_height"]` pixels from transparent into
+    the style's band colour.
 
     Why: the hero photo could be a bright white kitchen or a dark night shot.
     The fade guarantees the text underneath is readable either way.
 
     How: we build a 1-pixel-wide greyscale ramp (0 = transparent, 255 = opaque),
-    stretch it to full width, and use it as the mask when pasting a navy block.
+    stretch it to full width, and use it as the mask when pasting a colour
+    block. `gradient_exponent` shapes the ramp: 2 (most styles) eases in
+    slowly for a soft, natural fade; 1 (Bold) is linear, darkening sooner for a
+    punchier, higher-contrast look.
     """
-    ramp = Image.new("L", (1, GRADIENT_HEIGHT))
-    for y in range(GRADIENT_HEIGHT):
-        progress = y / (GRADIENT_HEIGHT - 1)
-        # Squaring the progress keeps the top of the fade subtle and lets it
-        # ramp up quickly near the bottom - a softer, more natural look than a
-        # straight linear fade.
-        ramp.putpixel((0, y), int(255 * (progress**2)))
+    height = palette["gradient_height"]
+    exponent = palette["gradient_exponent"]
 
-    mask = ramp.resize((CANVAS_SIZE, GRADIENT_HEIGHT))
-    navy_block = Image.new("RGB", (CANVAS_SIZE, GRADIENT_HEIGHT), NAVY)
-    canvas.paste(navy_block, (0, CANVAS_SIZE - GRADIENT_HEIGHT), mask)
+    ramp = Image.new("L", (1, height))
+    for y in range(height):
+        progress = y / (height - 1)
+        ramp.putpixel((0, y), int(255 * (progress**exponent)))
+
+    mask = ramp.resize((CANVAS_SIZE, height))
+    band_block = Image.new("RGB", (CANVAS_SIZE, height), palette["band"])
+    canvas.paste(band_block, (0, CANVAS_SIZE - height), mask)
 
 
-def _build_template_a(canvas: Image.Image, photos: list[str]) -> None:
+def _build_template_a(canvas: Image.Image, photos: list[str], palette: dict) -> None:
     """One photo, edge to edge, with the dark gradient over the bottom."""
     hero = _cell_image(photos[0], CANVAS_SIZE, CANVAS_SIZE)
     canvas.paste(hero, (0, 0))
-    _draw_gradient_overlay(canvas)
+    _draw_gradient_overlay(canvas, palette)
 
 
 # ---------------------------------------------------------------------------
@@ -238,7 +291,9 @@ def _grid_cells(photo_count: int) -> list[tuple[int, int, int, int]]:
     ]
 
 
-def _draw_more_badge(canvas: Image.Image, cell: tuple[int, int, int, int], extra: int) -> None:
+def _draw_more_badge(
+    canvas: Image.Image, cell: tuple[int, int, int, int], extra: int, palette: dict
+) -> None:
     """
     Stamp a "+N more" pill into the bottom-right corner of the final grid cell.
 
@@ -266,28 +321,35 @@ def _draw_more_badge(canvas: Image.Image, cell: tuple[int, int, int, int], extra
     draw.rounded_rectangle(
         (pill_x, pill_y, pill_x + pill_w, pill_y + pill_h),
         radius=pill_h // 2,
-        fill=NAVY + (225,),  # navy at ~88% opacity
+        fill=palette["band"] + (225,),  # band colour at ~88% opacity
     )
-    draw.text((pill_x + pill_w // 2, pill_y + pill_h // 2), label, font=font, fill=GOLD, anchor="mm")
+    draw.text(
+        (pill_x + pill_w // 2, pill_y + pill_h // 2),
+        label,
+        font=font,
+        fill=palette["accent"],
+        anchor="mm",
+    )
 
     # Paste using the overlay's own alpha channel as the mask.
     canvas.paste(overlay, (0, 0), overlay)
 
 
-def _build_template_b(canvas: Image.Image, photos: list[str]) -> None:
-    """Up to 4 photos in a grid; the bottom 380px stays solid navy for text."""
+def _build_template_b(canvas: Image.Image, photos: list[str], palette: dict) -> None:
+    """Up to 4 photos in a grid; the bottom 380px stays the style's band colour."""
     shown = photos[:MAX_GRID_PHOTOS]
     cells = _grid_cells(len(shown))
 
     for path, (x, y, w, h) in zip(shown, cells):
         canvas.paste(_cell_image(path, w, h), (x, y))
 
-    # The canvas starts life filled with navy, so the bottom band and the thin
-    # gutters between cells are already the right colour - nothing to draw.
+    # The canvas starts life filled with the style's band colour, so the bottom
+    # band and the thin gutters between cells are already the right colour -
+    # nothing to draw.
 
     extra = len(photos) - MAX_GRID_PHOTOS
     if extra > 0:
-        _draw_more_badge(canvas, cells[len(shown) - 1], extra)
+        _draw_more_badge(canvas, cells[len(shown) - 1], extra, palette)
 
 
 # ---------------------------------------------------------------------------
@@ -305,7 +367,12 @@ def _truncate(draw: ImageDraw.ImageDraw, text: str, font, max_width: int) -> str
 
 
 def _draw_text_block(
-    canvas: Image.Image, price: str, location: str, bedrooms: int, bathrooms: int
+    canvas: Image.Image,
+    price: str,
+    location: str,
+    bedrooms: int,
+    bathrooms: int,
+    palette: dict,
 ) -> None:
     """
     Draw price / location / bed-bath, stacked in the bottom-left corner.
@@ -322,7 +389,7 @@ def _draw_text_block(
 
     # (text, font, colour, gap below this line)
     lines = [
-        (price, _load_font(FONT_BOLD_PATH, PRICE_SIZE), GOLD, GAP_AFTER_PRICE),
+        (price, _load_font(FONT_BOLD_PATH, PRICE_SIZE), palette["accent"], GAP_AFTER_PRICE),
         (location, _load_font(FONT_REGULAR_PATH, LOCATION_SIZE), WHITE, GAP_AFTER_LOCATION),
         (details, _load_font(FONT_REGULAR_PATH, DETAILS_SIZE), LIGHT_GRAY, 0),
     ]
@@ -354,6 +421,7 @@ def generate_poster(
     bedrooms: int,
     bathrooms: int,
     output_path: str,
+    style_tag: str | None = None,
 ) -> str:
     """
     Generate a 1080x1080 property poster and save it as a PNG.
@@ -361,12 +429,17 @@ def generate_poster(
     Args:
         photos:      Local file paths to the property images, best photo first.
                      1-2 photos -> Template A (full-bleed hero).
-                     3+ photos  -> Template B (grid + navy band).
+                     3+ photos  -> Template B (grid + band).
         price:       Pre-formatted price string, e.g. "RM 450,000".
         location:    Short location line, e.g. "Mont Kiara, Kuala Lumpur".
         bedrooms:    Number of bedrooms.
         bathrooms:   Number of bathrooms.
         output_path: Where to write the PNG. Parent folders are created.
+        style_tag:   Optional caption style ("Modern"/"Warm"/"Bold", see
+            app.copy_generator.STYLE_TAGS) selecting the poster's colour
+            palette via STYLE_PALETTES. None or an unrecognised style falls
+            back to DEFAULT_PALETTE (the original navy/gold look) - callers
+            that don't care about style keep their exact existing appearance.
 
     Returns:
         The output_path that was written (same string you passed in).
@@ -377,18 +450,20 @@ def generate_poster(
     if not photos:
         raise ValueError("generate_poster() needs at least one photo path.")
 
-    # Start from a navy canvas. For Template B this IS the bottom band and the
-    # grid gutters, so we never have to draw them explicitly.
-    canvas = Image.new("RGB", (CANVAS_SIZE, CANVAS_SIZE), NAVY)
+    palette = _palette_for(style_tag)
+
+    # Start from the style's band colour. For Template B this IS the bottom
+    # band and the grid gutters, so we never have to draw them explicitly.
+    canvas = Image.new("RGB", (CANVAS_SIZE, CANVAS_SIZE), palette["band"])
 
     # ---- Automatic template selection -----------------------------------
     if len(photos) < GRID_TEMPLATE_MIN_PHOTOS:
-        _build_template_a(canvas, photos)
+        _build_template_a(canvas, photos, palette)
     else:
-        _build_template_b(canvas, photos)
+        _build_template_b(canvas, photos, palette)
 
     # ---- Shared text overlay --------------------------------------------
-    _draw_text_block(canvas, price, location, bedrooms, bathrooms)
+    _draw_text_block(canvas, price, location, bedrooms, bathrooms, palette)
 
     # ---- Save -----------------------------------------------------------
     destination = Path(output_path)

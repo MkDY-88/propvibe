@@ -8,6 +8,7 @@ ready-to-share 1080x1080 PNG straight back in the response body.
 Endpoints:
   GET  /              - health check
   GET  /dashboard     - minimal approval/preview page (static HTML)
+  GET  /privacy       - privacy policy page (Facebook App Live mode requirement)
   POST /generate-poster - returns the poster PNG directly
   POST /create-post   - returns poster (base64) + Claude-written caption as JSON
   POST /publish-post  - publishes a poster + caption to a Facebook Page
@@ -140,6 +141,15 @@ def listing():
     page = STATIC_DIR / "listing.html"
     if not page.exists():
         raise HTTPException(status_code=404, detail="Listing page not found.")
+    return FileResponse(page, media_type="text/html")
+
+
+@app.get("/privacy")
+def privacy():
+    """Serve the privacy policy page (required for Facebook App Live mode)."""
+    page = STATIC_DIR / "privacy.html"
+    if not page.exists():
+        raise HTTPException(status_code=404, detail="Privacy policy page not found.")
     return FileResponse(page, media_type="text/html")
 
 

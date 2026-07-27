@@ -50,7 +50,7 @@ load_dotenv(Path(__file__).resolve().parent / ".env")
 # NOTE: this is the `from X import Y` form on purpose - it binds only
 # `generate_poster`, so the `app` package name never lands in this module's
 # namespace and cannot shadow the `app = FastAPI()` instance below.
-from app.poster_generator import GRID_TEMPLATE_MIN_PHOTOS, generate_poster
+from app.poster_generator import GRID_TEMPLATE_MIN_PHOTOS, check_photos, generate_poster
 from app.copy_generator import STYLE_TAGS, CaptionError, generate_caption
 from app.trend_research import research_trend
 from app.facebook_publisher import (
@@ -197,6 +197,41 @@ def _require_text(raw: str | None, field: str) -> str:
     return raw.strip()
 
 
+def _usable_photos(saved_paths: list[str]) -> list[str]:
+    """
+    Drop the uploads we can't decode, or raise a clean 400 if none are usable.
+
+    The poster generator falls back to a flat grey block for a photo it can't
+    open. That keeps one bad upload from killing the job, but it is not a
+    result worth shipping: the grey rectangle lands in the finished poster, and
+    when every photo fails the "poster" is a plain grey square with a price on
+    it - returned as a cheerful 200. So we check up front, build from whatever
+    survives, and refuse outright when nothing does.
+
+    Partial failures are dropped silently (logged, not surfaced): the caller
+    still gets a good poster from their good photos, which is the useful
+    outcome. The size and emptiness checks in _save_uploads run earlier and
+    already reject their own cases with a clean 400.
+    """
+    usable, problems = check_photos(saved_paths)
+
+    if not usable:
+        raise HTTPException(
+            status_code=400,
+            detail="None of the uploaded photos could be used. " + " ".join(problems),
+        )
+
+    if problems:
+        logger.warning(
+            "Building poster from %d of %d photos; skipped: %s",
+            len(usable),
+            len(saved_paths),
+            " ".join(problems),
+        )
+
+    return usable
+
+
 @app.post("/generate-poster")
 async def generate_poster_endpoint(
     # Every field is declared optional and validated by hand below. If we let
@@ -262,11 +297,13 @@ async def generate_poster_endpoint(
 
             saved_paths.append(str(destination))
 
+        usable_paths = _usable_photos(saved_paths)
+
         output_path = job_dir / f"poster_{uuid.uuid4().hex[:8]}.png"
 
         try:
             generate_poster(
-                photos=saved_paths,
+                photos=usable_paths,
                 price=price,
                 location=location,
                 bedrooms=bedroom_count,
@@ -418,6 +455,7 @@ async def create_post_endpoint(
     # the job folder can be removed synchronously in `finally`.
     try:
         saved_paths = _save_uploads(uploads, job_dir)
+        usable_paths = _usable_photos(saved_paths)
 
         # Resolve ONE style for the whole request, before either generator runs:
         # whichever style has performed best so far, or a random pick from
@@ -429,7 +467,7 @@ async def create_post_endpoint(
         output_path = job_dir / f"poster_{uuid.uuid4().hex[:8]}.png"
         try:
             generate_poster(
-                photos=saved_paths,
+                photos=usable_paths,
                 price=price,
                 location=location,
                 bedrooms=bedroom_count,
@@ -475,7 +513,12 @@ async def create_post_endpoint(
         "hashtags": copy["hashtags"],
         "cta": copy["cta"],
         "style_tag": copy["style_tag"],
-        "template_id": _template_id_for(len(uploads)),
+        # Counted from the photos the poster was actually built from, not from
+        # how many arrived: a request that uploads 4 photos of which 2 are
+        # unreadable gets Template A, and Airtable has to record the template
+        # that was really used or the learning loop attributes engagement to
+        # the wrong one.
+        "template_id": _template_id_for(len(usable_paths)),
         # The live trend note the caption was written with, or null when the
         # search found nothing / wasn't available. Echoed back so the front end
         # (and a demo audience) can see the research actually ran and what it

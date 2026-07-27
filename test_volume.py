@@ -207,6 +207,14 @@ class Case:
     bathrooms: str
     expect: str  # "ok" or "4xx"
     why: str = ""
+    # How many of `photos` are actually decodable. Only set it when that differs
+    # from len(photos) - the template the server picks follows the photos it can
+    # really use, not the number that were uploaded.
+    usable: int | None = None
+
+    @property
+    def usable_count(self) -> int:
+        return len(self.photos) if self.usable is None else self.usable
 
 
 def build_matrix() -> list[Case]:
@@ -264,7 +272,8 @@ def build_matrix() -> list[Case]:
              "zero bytes - already guarded"),
         Case("photo_mixed_good_bad", "bad photo", ["good_1", "corrupt", "good_3", "not_image"],
              "RM 550,000", "Subang Jaya, Selangor", "4", "3", "ok",
-             "some photos are readable, so the poster should still build"),
+             "2 of 4 readable - poster builds from those 2, so Template A",
+             usable=2),
         Case("photo_huge_54mp", "bad photo", ["huge_ok"], "RM 4,900,000", "Bangsar, Kuala Lumpur", "5", "4", "ok",
              "big but legal - must crop correctly without timing out"),
         Case("photo_bomb_225mp", "bad photo", ["bomb"], "RM 4,900,000", "Bangsar, Kuala Lumpur", "5", "4", "4xx",
@@ -275,7 +284,8 @@ def build_matrix() -> list[Case]:
         # --- everything horrible at once ----------------------------------
         Case("combo_kitchen_sink", "combo", ["good_1", "corrupt", "good_2", "good_3", "good_4", "good_5", "good_6"],
              "RM450k", CHINESE, "0", "20", "ok",
-             "unicode + odd price + zero beds + a bad photo + badge overflow"),
+             "unicode + odd price + zero beds + a bad photo + badge overflow",
+             usable=6),
     ]
     return cases
 
@@ -377,11 +387,11 @@ def _inspect_caption(payload: dict, case: Case) -> list[str]:
     if not payload.get("poster_base64"):
         problems.append("poster_base64 missing")
 
-    expected_template = "Template A" if len(case.photos) < 3 else "Template B"
+    expected_template = "Template A" if case.usable_count < 3 else "Template B"
     if payload.get("template_id") != expected_template:
         problems.append(
             f"template_id is {payload.get('template_id')!r}, expected {expected_template!r} "
-            f"for {len(case.photos)} photos"
+            f"for {case.usable_count} usable photo(s)"
         )
 
     return problems

@@ -229,6 +229,39 @@ def _cell_image(path: str, width: int, height: int) -> Image.Image:
     return _crop_to_fill(photo, width, height)
 
 
+def check_photos(paths: list[str]) -> tuple[list[str], list[str]]:
+    """
+    Split photo paths into the ones we can actually use and the ones we can't.
+
+    Returns ``(usable, problems)``: `usable` is the subset Pillow decodes
+    successfully, in the original order, and `problems` holds one
+    ready-to-display sentence per rejected photo ("Photo 2 could not be read as
+    an image ...").
+
+    Callers are expected to run this BEFORE generate_poster() and drop the
+    rejects. The grey PLACEHOLDER_GRAY block in _cell_image() is a last-resort
+    safety net, not an acceptable result: a poster with a dead grey rectangle
+    where a bedroom should be is not something anyone would publish, and when
+    every photo fails it produces a poster that is nothing but grey.
+
+    Note this decodes each photo once here and again during layout. That is a
+    deliberate trade: for the endpoints it also means an all-unusable upload is
+    rejected before we spend a web search and a caption call on it.
+    """
+    usable: list[str] = []
+    problems: list[str] = []
+
+    for index, path in enumerate(paths, start=1):
+        image, reason = _open_photo(path)
+        if image is None:
+            problems.append(f"Photo {index} {reason}.")
+        else:
+            image.close()
+            usable.append(path)
+
+    return usable, problems
+
+
 # ---------------------------------------------------------------------------
 # TEMPLATE A - single full-bleed photo with a gradient fade
 # ---------------------------------------------------------------------------

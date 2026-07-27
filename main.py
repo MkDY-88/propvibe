@@ -52,6 +52,7 @@ load_dotenv(Path(__file__).resolve().parent / ".env")
 # namespace and cannot shadow the `app = FastAPI()` instance below.
 from app.poster_generator import GRID_TEMPLATE_MIN_PHOTOS, generate_poster
 from app.copy_generator import STYLE_TAGS, CaptionError, generate_caption
+from app.trend_research import research_trend
 from app.facebook_publisher import (
     FacebookPublishError,
     get_post_engagement,
@@ -381,11 +382,18 @@ async def create_post_endpoint(
           "cta":           "DM us to book a viewing",
           "style_tag":     "Warm",                  # style the caption was written in
           "template_id":   "Template A",            # poster template used
+          "trend_used":    true,                    # did live trend research feed in?
+          "trend_context": "<current market note>", # null when it didn't
           "poster_base64": "<base64 PNG bytes>"     # no data: prefix
         }
 
     style_tag and template_id are echoed back so the front end can hand them to
     /publish-post, which records them in Airtable for the learning loop.
+
+    Before writing the caption we also web-search the location for a current
+    market note (app.trend_research) and pass it to generate_caption() as an
+    optional hint. That step is best-effort: if it fails or finds nothing,
+    trend_context is null and the caption is generated exactly as before.
 
     The poster is inlined as base64 so the front end can render it immediately
     without a separate file-download route.
@@ -436,6 +444,16 @@ async def create_post_endpoint(
 
         poster_base64 = base64.b64encode(output_path.read_bytes()).decode("ascii")
 
+        # Ask Claude to web-search what's currently happening in this area, so
+        # the caption can reference something real rather than evergreen filler.
+        # research_trend() never raises and returns None on any failure (no API
+        # key, timeout, nothing found), so this is a straight assignment - a
+        # None here just means the caption is generated exactly as it was
+        # before. It's also internally capped at a few seconds and cached per
+        # location per day, so it can't stall the response for long or re-search
+        # on every post for the same area.
+        trend_context = research_trend(location)
+
         # The caption call hits the network and may fail for reasons the user
         # can act on (missing key, rate limit, ...). Surface the clean message.
         try:
@@ -445,6 +463,7 @@ async def create_post_endpoint(
                 bedroom_count,
                 bathroom_count,
                 preferred_style=style_tag,
+                trend_context=trend_context,
             )
         except CaptionError as exc:
             raise HTTPException(status_code=502, detail=str(exc))
@@ -457,6 +476,12 @@ async def create_post_endpoint(
         "cta": copy["cta"],
         "style_tag": copy["style_tag"],
         "template_id": _template_id_for(len(uploads)),
+        # The live trend note the caption was written with, or null when the
+        # search found nothing / wasn't available. Echoed back so the front end
+        # (and a demo audience) can see the research actually ran and what it
+        # found, rather than taking "the AI decided" on faith.
+        "trend_used": trend_context is not None,
+        "trend_context": trend_context,
         "poster_base64": poster_base64,
     }
 

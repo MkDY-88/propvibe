@@ -23,9 +23,12 @@ Requires: Pillow  (pip install Pillow)
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont, ImageOps
+
+logger = logging.getLogger("propvibe.poster_generator")
 
 # ---------------------------------------------------------------------------
 # DESIGN CONSTANTS
@@ -152,6 +155,119 @@ def _load_font(path: Path, size: int) -> ImageFont.FreeTypeFont:
 def fonts_are_available() -> bool:
     """True if the real Poppins files are on disk (handy for a health check)."""
     return FONT_BOLD_PATH.exists() and FONT_REGULAR_PATH.exists()
+
+
+# ---------------------------------------------------------------------------
+# NON-LATIN FALLBACK
+#
+# Poppins covers Latin and common punctuation and nothing else. A Chinese,
+# Tamil or Jawi location - all perfectly normal in Malaysian listings - renders
+# as a row of .notdef tofu boxes. When a line contains characters Poppins has no
+# glyph for, we look for a system font that does.
+#
+# Nothing is downloaded and no dependency is added: these are the usual install
+# locations on Windows, Linux and macOS. If none of them exist (a bare container
+# with no fonts installed) we log it once and fall back to Poppins, i.e. exactly
+# the old behaviour - tofu, but never a crash.
+# ---------------------------------------------------------------------------
+
+FALLBACK_FONT_PATHS = (
+    # Windows
+    "C:/Windows/Fonts/msyh.ttc",  # Microsoft YaHei - CJK + Latin
+    "C:/Windows/Fonts/NotoSansSC-VF.ttf",
+    "C:/Windows/Fonts/simsun.ttc",
+    "C:/Windows/Fonts/seguisym.ttf",
+    "C:/Windows/Fonts/arial.ttf",
+    # Linux (Railway / Debian / Alpine images that ship fonts)
+    "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+    "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
+    "/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc",
+    "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+    "/usr/share/fonts/truetype/freefont/FreeSans.ttf",
+    # macOS
+    "/System/Library/Fonts/PingFang.ttc",
+    "/System/Library/Fonts/Supplemental/Arial Unicode.ttf",
+)
+
+# A Private Use Area codepoint. No real font assigns a glyph to it, so whatever
+# a font draws for it IS that font's .notdef - the placeholder box. Comparing a
+# character's rendered bitmap against this tells us whether the font genuinely
+# covers that character, without parsing the font's cmap table or pulling in
+# fontTools just to ask.
+_NOTDEF_PROBE = "\ue000"
+
+# Fallback lookups are memoised per (path, size): resolving them means loading
+# and rasterising, and _draw_text_block runs this for every line of every poster.
+_FALLBACK_CACHE: dict[tuple[str, int], ImageFont.FreeTypeFont | None] = {}
+
+
+def _covers(font, text: str) -> bool:
+    """
+    True if `font` has a real glyph for every character in `text`.
+
+    Renders the .notdef probe once, then compares each character's bitmap
+    against it. Whitespace is skipped - it legitimately rasterises to nothing.
+    """
+    try:
+        notdef = bytes(font.getmask(_NOTDEF_PROBE))
+    except Exception:  # noqa: BLE001 - a bitmap fallback font can't be probed
+        return True
+
+    for char in set(text):
+        if char.isspace():
+            continue
+        try:
+            if bytes(font.getmask(char)) == notdef:
+                return False
+        except Exception:  # noqa: BLE001 - unrenderable is its own answer
+            return False
+    return True
+
+
+def _fallback_font(size: int, text: str):
+    """The first system font at `size` that covers `text`, or None."""
+    for path in FALLBACK_FONT_PATHS:
+        if not Path(path).exists():
+            continue
+
+        cached = (path, size)
+        if cached not in _FALLBACK_CACHE:
+            try:
+                _FALLBACK_CACHE[cached] = ImageFont.truetype(path, size)
+            except OSError:
+                _FALLBACK_CACHE[cached] = None
+
+        font = _FALLBACK_CACHE[cached]
+        if font is not None and _covers(font, text):
+            return font
+
+    return None
+
+
+def _font_for(path: Path, size: int, text: str):
+    """
+    The brand font at `size`, or a system fallback when it can't render `text`.
+
+    Latin text - which is almost everything - takes the fast path and gets
+    Poppins exactly as before. The fallback is only consulted for characters
+    Poppins genuinely lacks, and it is a regular weight regardless of which
+    Poppins we started from: real glyphs in the wrong weight beat correct-weight
+    boxes.
+    """
+    font = _load_font(path, size)
+    if _covers(font, text):
+        return font
+
+    fallback = _fallback_font(size, text)
+    if fallback is not None:
+        return fallback
+
+    logger.warning(
+        "No installed font covers %r - it will render as placeholder boxes. "
+        "Install a broad-coverage font (e.g. Noto Sans CJK) on this host.",
+        text[:40],
+    )
+    return font
 
 
 # ---------------------------------------------------------------------------
@@ -439,11 +555,18 @@ def _draw_text_block(
     # "3 Bed - 2 Bath", using a middle dot separator.
     details = f"{bedrooms} Bed · {bathrooms} Bath"
 
-    # (text, font, colour, gap below this line)
+    # (text, font, colour, gap below this line). _font_for keeps Poppins for
+    # Latin text and swaps in a system font only for a line Poppins can't render
+    # - a Chinese or Tamil location, which is ordinary in Malaysian listings.
     lines = [
-        (price, _load_font(FONT_BOLD_PATH, PRICE_SIZE), palette["accent"], GAP_AFTER_PRICE),
-        (location, _load_font(FONT_REGULAR_PATH, LOCATION_SIZE), WHITE, GAP_AFTER_LOCATION),
-        (details, _load_font(FONT_REGULAR_PATH, DETAILS_SIZE), LIGHT_GRAY, 0),
+        (price, _font_for(FONT_BOLD_PATH, PRICE_SIZE, price), palette["accent"], GAP_AFTER_PRICE),
+        (
+            location,
+            _font_for(FONT_REGULAR_PATH, LOCATION_SIZE, location),
+            WHITE,
+            GAP_AFTER_LOCATION,
+        ),
+        (details, _font_for(FONT_REGULAR_PATH, DETAILS_SIZE, details), LIGHT_GRAY, 0),
     ]
 
     # Measure every line ("la" anchor = left edge, top of the ascender).

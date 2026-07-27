@@ -233,7 +233,12 @@ def _usable_photos(saved_paths: list[str]) -> list[str]:
 
 
 @app.post("/generate-poster")
-async def generate_poster_endpoint(
+# Deliberately `def`, not `async def`. Everything below blocks - reading the
+# uploads, Pillow rasterising the poster - and blocking work inside an async
+# endpoint occupies the event loop, which serialises every other request behind
+# it. Declared sync, FastAPI runs it in its threadpool and concurrent requests
+# actually overlap. See the note on /create-post.
+def generate_poster_endpoint(
     # Every field is declared optional and validated by hand below. If we let
     # FastAPI enforce them, a missing field would come back as a 422 with a
     # nested Pydantic error body - the brief asks for a plain 400 and a
@@ -394,7 +399,15 @@ def _template_id_for(photo_count: int) -> str:
 
 
 @app.post("/create-post")
-async def create_post_endpoint(
+# Deliberately `def`, not `async def`. This endpoint contains no `await` at all:
+# saving uploads, Pillow, the trend web search and the caption call are every
+# one of them blocking, and the Anthropic SDK client used here is the sync one.
+# Run as `async def` that work sat on uvicorn's single event loop, so five
+# simultaneous requests were served strictly one after another - measured at
+# 35.3s wall for five requests against a 7.0s single-request baseline, i.e. no
+# overlap whatsoever. As a plain `def`, FastAPI dispatches it to its threadpool
+# and the same five overlap properly.
+def create_post_endpoint(
     # Same manual-validation approach as /generate-poster so a missing field is
     # a plain 400 with a readable message rather than a nested 422 body.
     photos: list[UploadFile] | None = File(None),
@@ -589,7 +602,11 @@ def _decode_poster(poster_base64: str) -> bytes:
 
 
 @app.post("/publish-post")
-async def publish_post_endpoint(payload: dict = Body(...)):
+# `def` for the same reason as /create-post: the Facebook upload and the
+# Airtable write are both blocking calls and there is no `await` here, so as an
+# async endpoint a slow Graph API response would stall every other request on
+# the server. Matches /sync-engagement, which was already sync.
+def publish_post_endpoint(payload: dict = Body(...)):
     """
     Publish an already-generated poster + caption to the Facebook Page.
 

@@ -526,9 +526,35 @@ def _dominant_colour(png_bytes: bytes) -> tuple[int, int, int]:
     poster = Image.open(io.BytesIO(png_bytes)).convert("RGB")
     sample = poster.crop((0, 0, CANVAS_SIZE, 500)).resize((40, 20))
     counts: dict[tuple[int, int, int], int] = {}
-    for pixel in sample.getdata():
+    for pixel in list(sample.getdata()):
         counts[pixel] = counts.get(pixel, 0) + 1
     return max(counts, key=counts.get)
+
+
+def _baseline_seconds(base_url: str) -> float:
+    """
+    How long ONE /create-post takes on an otherwise idle server.
+
+    Needed to say anything honest about parallelism. All five concurrent
+    requests start at the same instant, so if the server handles them strictly
+    one at a time each client still measures its own queue wait as elapsed time
+    - and the elapsed times overlap on paper even though nothing ran in
+    parallel. Comparing wall clock against N x this baseline is the measurement
+    that actually distinguishes the two.
+    """
+    name, colour, count, price, location, beds, baths = CONCURRENT_JOBS[0]
+    files = [
+        ("photos", (f"baseline_{i}.jpg", _solid_photo_bytes(colour, i), "image/jpeg"))
+        for i in range(1, count + 1)
+    ]
+    with httpx.Client(base_url=base_url, timeout=REQUEST_TIMEOUT) as client:
+        start = time.perf_counter()
+        client.post(
+            "/create-post",
+            files=files,
+            data={"price": price, "location": location, "bedrooms": beds, "bathrooms": baths},
+        )
+        return time.perf_counter() - start
 
 
 async def _fire_one(client: httpx.AsyncClient, job) -> dict:
@@ -569,6 +595,10 @@ def concurrency_check(base_url: str) -> list[str]:
     """
     uploads = Path(__file__).resolve().parent / "uploads"
     before = set(uploads.glob("job_*")) if uploads.exists() else set()
+
+    print("\nMeasuring a single-request baseline first...")
+    baseline = _baseline_seconds(base_url)
+    print(f"  one /create-post on an idle server: {baseline:.2f}s")
 
     print(f"\nFiring {len(CONCURRENT_JOBS)} /create-post requests concurrently...")
     wall_start = time.perf_counter()
@@ -624,10 +654,16 @@ def concurrency_check(base_url: str) -> list[str]:
     if leaked:
         problems.append(f"{len(leaked)} job folder(s) left behind in uploads/: {sorted(leaked)}")
 
-    print(f"\n  wall clock for all {len(CONCURRENT_JOBS)}: {wall:.2f}s (slowest single: {slowest:.2f}s)")
-    if wall > 0 and slowest > 0:
-        print(f"  overlap factor: {sum(r['seconds'] for r in responses) / wall:.2f}x "
-              f"(1.0 = fully serialised, {len(CONCURRENT_JOBS)}.0 = fully parallel)")
+    count = len(CONCURRENT_JOBS)
+    print(f"\n  wall clock for all {count}: {wall:.2f}s (slowest single: {slowest:.2f}s)")
+    if baseline > 0:
+        # Serial execution costs count x baseline; real parallelism approaches
+        # baseline. Anything near 1.0x means the requests queued behind each
+        # other rather than running together.
+        print(
+            f"  serial would be ~{count * baseline:.1f}s, parallel ~{baseline:.1f}s "
+            f"-> effective parallelism {count * baseline / wall:.2f}x of {count}.0"
+        )
     print(f"  uploads/ job folders leaked: {len(leaked)}")
 
     return problems

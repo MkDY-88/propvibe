@@ -100,17 +100,33 @@ def _build_user_prompt(
     bathrooms: int,
     style: str,
     tone_brief: str,
+    trend_context: str | None = None,
 ) -> str:
     """Assemble the listing details + tone into a single instruction for Claude."""
-    return (
+    prompt = (
         "Write the social media copy for this property listing:\n"
         f"- Price: {price}\n"
         f"- Location: {location}\n"
         f"- Bedrooms: {bedrooms}\n"
         f"- Bathrooms: {bathrooms}\n\n"
-        f"TONE: Write the caption in a {style} style - {tone_brief}.\n\n"
-        "Return the JSON object described in the system instructions."
+        f"TONE: Write the caption in a {style} style - {tone_brief}.\n"
     )
+
+    # A live market note from app.trend_research, when we managed to fetch one.
+    # Framed as an optional hint rather than a requirement: the listing details
+    # are the story, and a shoehorned-in statistic reads worse than no trend at
+    # all. Placed after the tone so it can't override the style we resolved.
+    if trend_context:
+        prompt += (
+            "\nCURRENT LOCAL CONTEXT (optional): here is a current trend note "
+            f"for this area - {trend_context}\n"
+            "Reference it naturally ONLY if it genuinely fits the caption's "
+            "tone and flow. Do not force it in, do not quote it verbatim, and "
+            "do not let it become the focus - the property is. Ignore it "
+            "entirely if it doesn't add anything.\n"
+        )
+
+    return prompt + "\nReturn the JSON object described in the system instructions."
 
 
 def _extract_json(text: str) -> dict:
@@ -200,6 +216,7 @@ def generate_caption(
     bedrooms: int,
     bathrooms: int,
     preferred_style: str,
+    trend_context: str | None = None,
 ) -> dict:
     """
     Generate social copy for a listing via Claude Haiku.
@@ -214,6 +231,11 @@ def generate_caption(
             best-performing style in Airtable or a random STYLE_TAGS pick when
             there's no data yet, and passes the identical value to the poster
             generator too, so caption and poster always share one style.
+        trend_context:   Optional live market note for this location, from
+            app.trend_research.research_trend(). Woven into the prompt as a
+            hint Claude may reference if it fits naturally. Pass None (the
+            default) and the prompt is byte-for-byte what it was before this
+            parameter existed.
 
     Returns:
         dict with keys "caption" (str), "hashtags" (list[str], no '#'), "cta"
@@ -247,7 +269,13 @@ def generate_caption(
                 {
                     "role": "user",
                     "content": _build_user_prompt(
-                        price, location, bedrooms, bathrooms, style_tag, tone_brief
+                        price,
+                        location,
+                        bedrooms,
+                        bathrooms,
+                        style_tag,
+                        tone_brief,
+                        trend_context,
                     ),
                 }
             ],

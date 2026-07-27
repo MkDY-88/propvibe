@@ -159,6 +159,32 @@ def fonts_are_available() -> bool:
 # ---------------------------------------------------------------------------
 
 
+def _open_photo(path: str) -> tuple[Image.Image | None, str | None]:
+    """
+    Open a photo safely, reporting *why* if it can't be used.
+
+    Returns ``(image, None)`` on success or ``(None, reason)`` on failure, where
+    `reason` is a short phrase that reads correctly after "Photo 3 ...".
+
+    The decompression-bomb case is called out separately because it is NOT a
+    corrupt file: a 15000x15000 PNG of flat colour is under a megabyte on disk
+    (so it sails past the upload size guard) but decodes to 225 megapixels, and
+    Pillow refuses it with DecompressionBombError. That exception derives from
+    Exception, not OSError, so it used to escape this function entirely and
+    surface as a 500.
+    """
+    try:
+        img = Image.open(path)
+        # Phone photos carry an EXIF "rotate me" flag. Applying it here stops
+        # portrait shots from coming out sideways.
+        img = ImageOps.exif_transpose(img)
+        return img.convert("RGB"), None
+    except Image.DecompressionBombError:
+        return None, "is too large to process (too many pixels once decoded)"
+    except (OSError, ValueError):
+        return None, "could not be read as an image (corrupt, truncated, or not an image file)"
+
+
 def _load_photo(path: str) -> Image.Image | None:
     """
     Open a photo safely.
@@ -166,14 +192,7 @@ def _load_photo(path: str) -> Image.Image | None:
     Returns None if the file is missing or unreadable, so one bad upload can
     never take down the whole poster job.
     """
-    try:
-        img = Image.open(path)
-        # Phone photos carry an EXIF "rotate me" flag. Applying it here stops
-        # portrait shots from coming out sideways.
-        img = ImageOps.exif_transpose(img)
-        return img.convert("RGB")
-    except (OSError, ValueError):
-        return None
+    return _open_photo(path)[0]
 
 
 def _crop_to_fill(img: Image.Image, width: int, height: int) -> Image.Image:

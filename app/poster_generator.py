@@ -525,13 +525,41 @@ def _build_template_b(canvas: Image.Image, photos: list[str], palette: dict) -> 
 # ---------------------------------------------------------------------------
 
 
+# A 1080px-wide poster fits a few dozen characters at these font sizes, so
+# anything past this is guaranteed to be cut. Clipping to it before measuring
+# keeps _truncate's cost flat no matter how long the input is.
+TRUNCATE_SCAN_LIMIT = 400
+
+
 def _truncate(draw: ImageDraw.ImageDraw, text: str, font, max_width: int) -> str:
-    """Shorten text with an ellipsis if it would run off the right edge."""
-    if draw.textlength(text, font=font) <= max_width:
+    """
+    Shorten text with an ellipsis if it would run off the right edge.
+
+    Finds the longest prefix that fits by binary search rather than by trimming
+    one character at a time. The old one-at-a-time loop re-measured the whole
+    remaining string on every step, so cost grew with the square of the input:
+    a 3000-character location spent 5.8 seconds here, and a longer one would
+    have looked to a caller exactly like a hung request.
+    """
+    # Measuring the whole string is itself linear in its length, so skip it once
+    # we're past the point where it could conceivably fit - even 400 periods are
+    # wider than the poster.
+    if len(text) <= TRUNCATE_SCAN_LIMIT and draw.textlength(text, font=font) <= max_width:
         return text
-    while text and draw.textlength(text + "...", font=font) > max_width:
-        text = text[:-1]
-    return text.rstrip() + "..."
+
+    text = text[:TRUNCATE_SCAN_LIMIT]
+
+    # Largest `size` where text[:size] + "..." still fits. Invariant: everything
+    # at or below `low` fits, everything above `high` does not.
+    low, high = 0, len(text)
+    while low < high:
+        middle = (low + high + 1) // 2
+        if draw.textlength(text[:middle] + "...", font=font) <= max_width:
+            low = middle
+        else:
+            high = middle - 1
+
+    return text[:low].rstrip() + "..."
 
 
 def _draw_text_block(

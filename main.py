@@ -29,9 +29,10 @@ import uuid
 from pathlib import Path
 from urllib.parse import quote
 
+import httpx
 from dotenv import load_dotenv
 from fastapi import Body, FastAPI, File, Form, Header, HTTPException, Query, UploadFile
-from fastapi.responses import FileResponse, RedirectResponse
+from fastapi.responses import FileResponse, RedirectResponse, Response
 from starlette.background import BackgroundTask
 
 # Load variables from a local .env file (e.g. ANTHROPIC_API_KEY,
@@ -67,9 +68,16 @@ except ImportError:
 # NOTE: this is the `from X import Y` form on purpose - it binds only
 # `generate_poster`, so the `app` package name never lands in this module's
 # namespace and cannot shadow the `app = FastAPI()` instance below.
-from app.poster_generator import GRID_TEMPLATE_MIN_PHOTOS, check_photos, generate_poster
+from app.poster_generator import (
+    GRID_TEMPLATE_MIN_PHOTOS,
+    add_disclosure_label,
+    check_photos,
+    generate_poster,
+    photo_as_jpeg_bytes,
+)
 from app.copy_generator import STYLE_TAGS, CaptionError, generate_caption
 from app.lead_chatbot import ChatError, extract_search_intent, qualify_lead
+from app.photo_condition import FalEditError, TIME_OF_DAY_VALUES, WEATHER_VALUES, edit_photo_condition
 from app.trend_research import research_trend
 from app.listings_source import (
     PHOTO_POOL_DIR,
@@ -86,18 +94,22 @@ from app.facebook_publisher import (
 )
 from app.click_tracker import (
     get_clicks,
+    get_tracking_photo,
     get_tracking_row_index,
     link_post,
     record_click,
     save_tracking_listing,
+    save_tracking_photo,
     tracking_id_for_post,
 )
 from app.airtable_client import (
     AirtableError,
     create_post_record,
+    get_photo_condition_cache_entries,
     get_posts,
     get_style_performance,
     log_engagement,
+    save_cached_photo_condition,
     upsert_lead_record,
 )
 
@@ -260,7 +272,7 @@ def listing_info(tracking_id: str):
     context = _listing_context(tracking_id)
     if context is None:
         return {"found": False}
-    return {"found": True, **context}
+    return {"found": True, **context, "photo_filename": get_tracking_photo(tracking_id)}
 
 
 def _parse_count(raw: str | None, field: str) -> int:
@@ -843,6 +855,244 @@ def regenerate_poster_endpoint(payload: dict = Body(...)):
     return {"poster_base64": poster_base64}
 
 
+def _resolve_pool_photo(raw: object) -> Path:
+    """
+    Bare-filename + no-path-traversal + must-exist validation for a demo pool
+    photo. Identical rules to /regenerate-poster's inline checks above -
+    deliberately duplicated rather than refactored into that endpoint, so
+    the already-working /regenerate-poster keeps a zero-line diff. Shared by
+    /toggle-photo-condition, GET /pool-photo/{filename}, and /publish-post's
+    optional photo_filename field.
+    """
+    if not isinstance(raw, str) or not raw.strip():
+        raise HTTPException(status_code=400, detail="'photo_filename' is required.")
+
+    photo_filename = raw.strip()
+    if photo_filename != Path(photo_filename).name:
+        raise HTTPException(status_code=400, detail="'photo_filename' is invalid.")
+
+    photo_path = PHOTO_POOL_DIR / photo_filename
+    try:
+        photo_path.resolve().relative_to(PHOTO_POOL_DIR.resolve())
+    except ValueError:
+        raise HTTPException(status_code=400, detail="'photo_filename' is invalid.")
+
+    if not photo_path.is_file():
+        raise HTTPException(status_code=404, detail="That demo photo no longer exists.")
+
+    return photo_path
+
+
+@app.get("/pool-photo/{photo_filename}")
+def pool_photo_endpoint(photo_filename: str):
+    """
+    Serve an ORIGINAL, untouched pool photo as a browser-renderable JPEG.
+
+    No AI cost - this never calls fal.ai. Exists so the landing page's photo
+    widget has something to show before any lighting/weather combo is
+    toggled. Re-encodes via photo_as_jpeg_bytes so a .HEIC source photo (4 of
+    the 10 in the pool) still renders in a plain <img> tag.
+    """
+    photo_path = _resolve_pool_photo(photo_filename)
+    jpeg_bytes = photo_as_jpeg_bytes(str(photo_path))
+    if jpeg_bytes is None:
+        raise HTTPException(status_code=500, detail="That photo could not be read as an image.")
+    return Response(content=jpeg_bytes, media_type="image/jpeg")
+
+
+@app.get("/listing-photo-widget.js")
+def listing_photo_widget_js():
+    """
+    Serve the isolated landing-page photo-toggle widget script.
+
+    A dedicated route rather than a generic StaticFiles mount, matching the
+    existing pattern here: /dashboard, /listing and /privacy are each their
+    own FileResponse route reading from STATIC_DIR - there is no
+    app.mount("/static", ...) anywhere in this app, so a plain
+    `<script src="/static/...">` would 404.
+    """
+    page = STATIC_DIR / "listing-photo-widget.js"
+    if not page.exists():
+        raise HTTPException(status_code=404, detail="Widget script not found.")
+    return FileResponse(page, media_type="application/javascript")
+
+
+# How many (time_of_day, weather) combinations exist per photo. Matches
+# len(TIME_OF_DAY_VALUES) * len(WEATHER_VALUES) - kept as its own constant so
+# the cap check below reads as a business rule, not an incidental product of
+# two tuple lengths.
+MAX_CONDITION_COMBOS_PER_PHOTO = 9
+
+
+@app.post("/toggle-photo-condition")
+# `def`, not `async def` - same reasoning as every other endpoint here that
+# calls a blocking third-party API (Airtable, fal.ai) and does blocking
+# Pillow work, with no `await` anywhere in the body.
+def toggle_photo_condition_endpoint(payload: dict = Body(...)):
+    """
+    Re-light a demo photo for a given time-of-day + weather combo, then
+    redraw the poster's price/location/features overlay on top of it.
+
+    Send JSON:
+
+        {
+          "photo_filename": "unit_012.jpg",
+          "time_of_day": "morning" | "evening" | "night",
+          "weather": "sunny" | "cloudy" | "rainy",
+          "price": "RM 1,200",
+          "location": "Mont Kiara, Kuala Lumpur",
+          "features": "Master, Queen bed, Private bathroom",  # optional
+          "style_tag": "Warm"                                 # optional
+        }
+
+    CACHE FIRST, ALWAYS: every combo is looked up in the Airtable "Photo
+    Condition Cache" table before fal.ai is ever called. fal.ai is only
+    called on a genuine cache miss, always starting from the ORIGINAL pool
+    photo (never a previously-edited one), and the result is written back to
+    the cache immediately, before this function returns - a combo is
+    generated at most once, ever. This is what keeps the fal.ai budget
+    bounded at photo_pool_size * 9 generations worst case, not per-request.
+
+    The AI edit only ever touches the photo itself. The fixed-text price/
+    location/features overlay is always drawn by the existing
+    generate_poster() -> _draw_text_block() path, exactly as every other
+    poster-producing endpoint does it, and is redrawn fresh on every call
+    (cache hit or miss) - so an edited price still shows correctly on a
+    photo that was cached earlier with a different price. A visible
+    disclosure label is burned into the final image afterwards.
+
+    Returns `{"poster_base64": "<base64 PNG bytes>", "cached": true|false}`.
+    """
+    photo_path = _resolve_pool_photo(payload.get("photo_filename"))
+    photo_filename = photo_path.name
+
+    time_of_day = payload.get("time_of_day")
+    if time_of_day not in TIME_OF_DAY_VALUES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"'time_of_day' must be one of {list(TIME_OF_DAY_VALUES)}.",
+        )
+
+    weather = payload.get("weather")
+    if weather not in WEATHER_VALUES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"'weather' must be one of {list(WEATHER_VALUES)}.",
+        )
+
+    price = _require_text(payload.get("price"), "price")
+    location = _require_text(payload.get("location"), "location")
+
+    features = payload.get("features")
+    if features is not None and not isinstance(features, str):
+        raise HTTPException(status_code=400, detail="'features' must be a string.")
+
+    style_tag = payload.get("style_tag")
+    if style_tag is not None and not isinstance(style_tag, str):
+        raise HTTPException(status_code=400, detail="'style_tag' must be a string.")
+
+    # Cache lookup ALWAYS comes first. If Airtable can't even be read here,
+    # we must not fall through and call fal.ai blind - that would defeat the
+    # entire point of the cache, which is what keeps spend bounded.
+    try:
+        entries = get_photo_condition_cache_entries(photo_filename)
+    except AirtableError as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Could not check the photo cache before generating: {exc}",
+        )
+
+    match = next(
+        (
+            entry
+            for entry in entries
+            if entry["time_of_day"] == time_of_day
+            and entry["weather"] == weather
+            and entry["attachment_url"]
+        ),
+        None,
+    )
+
+    if match is not None:
+        try:
+            image_response = httpx.get(match["attachment_url"], timeout=30)
+            image_response.raise_for_status()
+        except httpx.HTTPError as exc:
+            raise HTTPException(
+                status_code=502,
+                detail=f"Could not download the cached photo from Airtable: {exc}",
+            )
+        image_bytes = image_response.content
+        cached = True
+    else:
+        # Defensive only: with time_of_day/weather constrained to exactly 9
+        # valid combinations, normal traffic can never reach a genuine 9th
+        # miss (the 9th combo's lookup above would already have been a hit).
+        # Counts every existing row, including an attachment-less orphan
+        # (see get_photo_condition_cache_entries), so the worst-case-spend
+        # guarantee holds even after a rare crash-mid-write.
+        if len(entries) >= MAX_CONDITION_COMBOS_PER_PHOTO:
+            raise HTTPException(
+                status_code=409,
+                detail="All 9 lighting/weather combinations already exist for this photo.",
+            )
+
+        _usable_photos([str(photo_path)])
+
+        try:
+            image_bytes = edit_photo_condition(str(photo_path), time_of_day, weather)
+        except FalEditError as exc:
+            raise HTTPException(status_code=502, detail=str(exc))
+
+        try:
+            save_cached_photo_condition(photo_filename, time_of_day, weather, image_bytes)
+        except AirtableError as exc:
+            # The edit already happened - real money was spent. The caller
+            # should still get what they paid for; a failed cache write just
+            # means this exact combo risks being re-generated (and re-billed)
+            # on a future request, which is why this is logged loudly rather
+            # than swallowed quietly.
+            logger.error(
+                "Generated a photo-condition edit for %r (%s/%s) but could not "
+                "cache it in Airtable - this combo may be re-billed on a future "
+                "request: %s",
+                photo_filename,
+                time_of_day,
+                weather,
+                exc,
+            )
+        cached = False
+
+    UPLOAD_ROOT.mkdir(parents=True, exist_ok=True)
+    job_dir = Path(tempfile.mkdtemp(prefix="toggle_", dir=UPLOAD_ROOT))
+    try:
+        edited_photo_path = job_dir / "edited_source.jpg"
+        edited_photo_path.write_bytes(image_bytes)
+
+        output_path = job_dir / f"poster_{uuid.uuid4().hex[:8]}.png"
+        try:
+            generate_poster(
+                photos=[str(edited_photo_path)],
+                price=price,
+                location=location,
+                bedrooms=0,
+                bathrooms=0,
+                output_path=str(output_path),
+                style_tag=style_tag,
+                details=features or "",
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+
+        add_disclosure_label(str(output_path))
+
+        poster_base64 = base64.b64encode(output_path.read_bytes()).decode("ascii")
+    finally:
+        shutil.rmtree(job_dir, ignore_errors=True)
+
+    return {"poster_base64": poster_base64, "cached": cached}
+
+
 def _build_fb_message(caption: str | None, hashtags: list | None, cta: str | None) -> str:
     """
     Assemble the final Facebook post text: caption, hashtags, then CTA.
@@ -920,13 +1170,19 @@ def publish_post_endpoint(payload: dict = Body(...)):
           "cta":           "DM us to book a viewing",
           "style_tag":     "Warm",                 # optional - from /create-post
           "template_id":   "A",                    # optional - from /create-post
-          "listing_row_index": 17                   # optional - from /auto-create-post
+          "listing_row_index": 17,                  # optional - from /auto-create-post
+          "photo_filename": "unit_012.jpg"          # optional - the pool photo actually shown
         }
 
     Before publishing we mint a short tracking id and append its link
     (``<BASE_URL>/t/<id>``) to the CTA, so clicks route through the tracking
     endpoint. The caption, hashtags (each '#'-prefixed) and the link-carrying CTA
     are combined - separated by blank lines - into the final post text.
+
+    `photo_filename`, when present, is recorded locally against the new
+    tracking id (see app.click_tracker.save_tracking_photo) so the public
+    landing page (GET /listing-info) can show and toggle the SAME pool photo
+    this post was actually published with, rather than none at all.
 
     After a successful publish we record the post in Airtable (template, style,
     caption, Facebook post id, tracking id). That logging is best-effort: if it
@@ -964,6 +1220,17 @@ def publish_post_endpoint(payload: dict = Body(...)):
             raise HTTPException(
                 status_code=400, detail="'listing_row_index' must be an integer."
             )
+
+    # Optional - the pool photo this poster was actually built from. Validated
+    # with the same bare-filename/no-path-traversal rules as every other
+    # endpoint that touches PHOTO_POOL_DIR; re-validating here (rather than
+    # trusting the value the front end already had) costs nothing and means
+    # a stale/deleted filename fails loudly instead of silently recording
+    # bad data for the landing page to later 404 on.
+    raw_photo_filename = payload.get("photo_filename")
+    photo_filename: str | None = None
+    if raw_photo_filename is not None:
+        photo_filename = _resolve_pool_photo(raw_photo_filename).name
 
     image_bytes = _decode_poster(payload.get("poster_base64"))
 
@@ -1010,6 +1277,11 @@ def publish_post_endpoint(payload: dict = Body(...)):
     # at, instead of falling back to generic copy.
     if listing_row_index is not None:
         save_tracking_listing(tracking_id, listing_row_index)
+
+    # Same idea, for the photo: lets the public landing page show/toggle the
+    # exact photo this post used instead of nothing at all.
+    if photo_filename is not None:
+        save_tracking_photo(tracking_id, photo_filename)
 
     response = {
         "post_id": result["post_id"],

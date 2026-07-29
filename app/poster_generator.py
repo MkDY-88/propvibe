@@ -23,6 +23,7 @@ Requires: Pillow  (pip install Pillow)
 
 from __future__ import annotations
 
+import io
 import logging
 from pathlib import Path
 
@@ -309,6 +310,24 @@ def _load_photo(path: str) -> Image.Image | None:
     never take down the whole poster job.
     """
     return _open_photo(path)[0]
+
+
+def photo_as_jpeg_bytes(path: str) -> bytes | None:
+    """
+    Decode a photo (via _open_photo - handles HEIC, EXIF rotation, RGB
+    conversion) and re-encode it as JPEG bytes, or None if it can't be
+    decoded.
+
+    Used to serve pool photos over HTTP for plain browser <img> tags: 4 of
+    the 10 demo photos are .HEIC, which no browser can render directly, so
+    the bytes on disk aren't fit to serve as-is.
+    """
+    image, _reason = _open_photo(path)
+    if image is None:
+        return None
+    buffer = io.BytesIO()
+    image.save(buffer, format="JPEG", quality=90)
+    return buffer.getvalue()
 
 
 def _crop_to_fill(img: Image.Image, width: int, height: int) -> Image.Image:
@@ -682,3 +701,59 @@ def generate_poster(
     canvas.save(destination, format="PNG")
 
     return output_path
+
+
+# Shown on any poster whose photo went through /toggle-photo-condition's AI
+# lighting/weather edit - burned into the pixels (not just page copy) so the
+# disclosure survives the image being shared or downloaded outside this app.
+DISCLOSURE_LABEL_TEXT = "AI-simulated lighting/weather"
+
+
+def add_disclosure_label(image_path: str, label: str = DISCLOSURE_LABEL_TEXT) -> None:
+    """
+    Burn a small disclosure pill into the bottom-right corner of an
+    already-saved poster PNG, in place.
+
+    Called as a separate step, strictly AFTER generate_poster() has already
+    written its output - this never touches _draw_text_block or
+    generate_poster() itself, and every other caller of generate_poster() is
+    completely unaffected. Reuses the same overlay technique as
+    _draw_more_badge: draw a pill + text on a transparent RGBA layer, then
+    paste it using its own alpha channel as the mask, so it blends over
+    whatever is underneath instead of covering it with a hard-edged box.
+
+    A fixed dark, semi-transparent pill with white text is used (rather than
+    a style palette colour) so the label stays legible regardless of which
+    poster style generated the underlying image.
+    """
+    canvas = Image.open(image_path).convert("RGB")
+    font = _load_font(FONT_REGULAR_PATH, 20)
+
+    overlay = Image.new("RGBA", canvas.size, (0, 0, 0, 0))
+    draw = ImageDraw.Draw(overlay)
+
+    text_box = draw.textbbox((0, 0), label, font=font)
+    text_w = text_box[2] - text_box[0]
+    text_h = text_box[3] - text_box[1]
+
+    pad_x, pad_y, inset = 14, 9, 20
+    pill_w = text_w + pad_x * 2
+    pill_h = text_h + pad_y * 2
+    pill_x = canvas.width - inset - pill_w
+    pill_y = canvas.height - inset - pill_h
+
+    draw.rounded_rectangle(
+        (pill_x, pill_y, pill_x + pill_w, pill_y + pill_h),
+        radius=pill_h // 2,
+        fill=(0, 0, 0, 190),
+    )
+    draw.text(
+        (pill_x + pill_w // 2, pill_y + pill_h // 2),
+        label,
+        font=font,
+        fill=(255, 255, 255, 255),
+        anchor="mm",
+    )
+
+    canvas.paste(overlay, (0, 0), overlay)
+    canvas.save(image_path, format="PNG")

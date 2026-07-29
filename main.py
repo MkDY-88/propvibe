@@ -646,6 +646,36 @@ def create_post_endpoint(
     }
 
 
+@app.get("/search-listings")
+def search_listings_endpoint(q: str = Query("")):
+    """
+    Up to 8 listings whose condo name or address matches the free-text `q`,
+    for the dashboard's search box. Reuses the lead chatbot's search_listings()
+    (its name_or_address_keyword criterion) rather than a second matcher, so
+    "casa ti" and "birch ipoh" match the same forgiving way the chatbot does.
+
+    Returns just enough to render a pick-list; the click itself goes through
+    /auto-create-post?row_index=... which returns the full listing details.
+    """
+    query = q.strip()
+    if not query:
+        # An empty box means "not searching", not "show me everything".
+        return {"results": []}
+
+    matches = search_listings(name_or_address_keyword=query, limit=8)
+    return {
+        "results": [
+            {
+                "row_index": listing.row_index,
+                "condo_name": listing.condo_name,
+                "price": listing.price,
+                "address": listing.address,
+            }
+            for listing in matches
+        ]
+    }
+
+
 @app.post("/auto-create-post")
 # `def`, not `async def` - same reasoning as /create-post: Pillow, the trend
 # search and the caption call are all blocking, so this needs FastAPI's
@@ -656,11 +686,20 @@ def auto_create_post_endpoint(
     # rather than the same one again. No server-side state for skips - the
     # value is only ever passed through on this one request.
     after: int | None = Query(None),
+    # Set by the dashboard's search box to load one exact listing instead of
+    # the next-in-sequence candidate. Takes precedence over `after`. An
+    # already-posted row is allowed through (the agent may genuinely want to
+    # re-post it) but flagged in the response so the frontend can warn.
+    row_index: int | None = Query(None),
 ):
     """
     Auto-ready the next un-posted room_listings.csv row: pick a listing,
     assign a demo photo, and build the same poster + caption /create-post
     does - with no photo upload or form fields required.
+
+    With `row_index`, load exactly that row instead (the dashboard's search
+    box picking a specific listing); everything downstream - deterministic
+    photo, poster, caption - is identical to the sequential path.
 
     "Un-posted" is read from Airtable (see app.airtable_client.get_posts's
     listing_row_index), not a local file, because Railway's filesystem is
@@ -681,9 +720,12 @@ def auto_create_post_endpoint(
     try:
         posted = get_posts()
     except AirtableError as exc:
+        # Direct loads only need Airtable for the already_posted flag, but a
+        # wrong "not posted yet" is worse than an error: the whole point of
+        # the flag is stopping an unnoticed duplicate going to Facebook.
         raise HTTPException(
             status_code=502,
-            detail=f"Could not read Airtable to pick the next listing: {exc}",
+            detail=f"Could not read Airtable's posted listings: {exc}",
         )
 
     posted_indices = {
@@ -692,12 +734,20 @@ def auto_create_post_endpoint(
         if post.get("listing_row_index") is not None
     }
 
-    listing = next_unposted_listing(posted_indices, after=after)
-    if listing is None:
-        raise HTTPException(
-            status_code=404,
-            detail="No un-posted listings remain in room_listings.csv.",
-        )
+    if row_index is not None:
+        listing = get_listing(row_index)
+        if listing is None:
+            raise HTTPException(
+                status_code=404,
+                detail=f"No listing exists at row_index {row_index}.",
+            )
+    else:
+        listing = next_unposted_listing(posted_indices, after=after)
+        if listing is None:
+            raise HTTPException(
+                status_code=404,
+                detail="No un-posted listings remain in room_listings.csv.",
+            )
 
     try:
         photo_path = pool_photo_for_listing(listing.row_index)
@@ -754,6 +804,11 @@ def auto_create_post_endpoint(
         "price": listing.price,
         "address": listing.address,
         "features": listing.features_text,
+        # Always False on the sequential path (next_unposted_listing skips
+        # posted rows by construction); only a search-loaded listing can be
+        # True. The frontend warns but doesn't block - re-posting may be
+        # exactly what the agent wants, it just mustn't happen unnoticed.
+        "already_posted": listing.row_index in posted_indices,
         "caption": copy["caption"],
         "hashtags": copy["hashtags"],
         "cta": copy["cta"],

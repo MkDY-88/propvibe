@@ -290,6 +290,7 @@ class _Criteria:
     target_price: int | None = None
     price_tolerance: float = DEFAULT_PRICE_TOLERANCE
     location: str = ""
+    name_or_address: str = ""
     room_type: str = ""
     bed_type: str = ""
     bathroom_type: str = ""
@@ -301,6 +302,7 @@ class _Criteria:
             self.max_price is not None
             or self.target_price is not None
             or self.location
+            or self.name_or_address
             or self.room_type
             or self.bed_type
             or self.bathroom_type
@@ -360,6 +362,18 @@ def _checks(listing: Listing, criteria: _Criteria) -> list[bool]:
 
     if criteria.location:
         results.append(_location_match(criteria.location, listing.address))
+
+    if criteria.name_or_address:
+        # The dashboard's search box: one free-text query against the condo
+        # name and the address together. _location_match's semantics (whole
+        # phrase as substring, else every word present) are exactly right for
+        # partial typing - "casa ti" prefix-matches "Casa Tiara" and
+        # "birch ipoh" finds The Birch on Jalan Ipoh.
+        results.append(
+            _location_match(
+                criteria.name_or_address, f"{listing.condo_name} {listing.address}"
+            )
+        )
 
     if criteria.room_type:
         # Room Type and Bed Type together: to a lead "master" and "queen" are
@@ -498,6 +512,7 @@ def search_listings(
     bed_type_keyword: str | None = None,
     bathroom_type_keyword: str | None = None,
     must_have_features: list[str] | tuple[str, ...] | None = None,
+    name_or_address_keyword: str | None = None,
     exclude_row_index: int | None = None,
     limit: int = 4,
 ) -> SearchResult:
@@ -520,6 +535,11 @@ def search_listings(
         must_have_features    keywords like ["parking", "balcony"], each
                               matched against features_text and the parking
                               rental.
+        name_or_address_keyword
+                              free text matched against the condo name AND the
+                              address together - the dashboard search box,
+                              where "what they typed" may be either. Never
+                              relaxed, like the area.
 
     Text criteria match forgivingly (case, punctuation and word-by-word), so a
     phrase a person would actually type finds the rows a column value spells
@@ -555,6 +575,7 @@ def search_listings(
         max_price=max_price,
         target_price=target_price,
         location=(location_keyword or "").strip(),
+        name_or_address=(name_or_address_keyword or "").strip(),
         room_type=(room_type_keyword or "").strip(),
         bed_type=(bed_type_keyword or "").strip(),
         bathroom_type=(bathroom_type_keyword or "").strip(),

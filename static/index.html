@@ -1,0 +1,243 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>PropVibe - AI Real-Estate Marketing</title>
+  <style>
+    /* ---- PropVibe shared design system (keep identical across pages) ---- */
+    :root {
+      --navy: #1a2b4c; --navy-deep: #14213a; --navy-soft: #24365c;
+      --gold: #d4af37; --gold-tint: #fbf7e8;
+      --gray: #4a5568; --line: #e2e8f0; --ink: #1a202c;
+      --bg: #f6f7f9; --card: #ffffff; --chip: #eef1f6; --faint: #94a3b8;
+      --radius: 10px; --radius-sm: 6px;
+      --shadow-sm: 0 1px 3px rgba(26, 43, 76, 0.08);
+      --shadow-md: 0 10px 30px rgba(26, 43, 76, 0.08);
+      --shadow-lift: 0 8px 20px rgba(26, 43, 76, 0.16);
+      --ease: cubic-bezier(0.33, 1, 0.68, 1);
+      --dur-fast: 0.16s; --dur: 0.3s; --dur-slow: 0.55s;
+    }
+    * { box-sizing: border-box; }
+    @keyframes pv-fade-up { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } }
+    @keyframes pv-fade-in { from { opacity: 0; } to { opacity: 1; } }
+    @keyframes pv-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.45; } }
+    @keyframes pv-spin { to { transform: rotate(360deg); } }
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after {
+        animation-duration: 0.01ms !important; animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+      }
+    }
+    .site-nav {
+      background: var(--navy-deep); border-bottom: 3px solid var(--gold);
+      display: flex; align-items: center; justify-content: space-between;
+      flex-wrap: wrap; gap: 8px 16px; padding: 13px 24px;
+    }
+    .site-nav .brand {
+      color: #fff; font-weight: 700; font-size: 17px; letter-spacing: 0.02em;
+      text-decoration: none;
+    }
+    .site-nav .brand span { color: var(--gold); }
+    .site-nav-links { display: flex; flex-wrap: wrap; gap: 4px; }
+    .site-nav-links a {
+      color: rgba(255, 255, 255, 0.82); text-decoration: none; font-size: 13px;
+      font-weight: 600; padding: 7px 12px; border-radius: 999px;
+      transition: background var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease);
+    }
+    .site-nav-links a:hover { background: rgba(255, 255, 255, 0.14); color: #fff; }
+    .site-nav-links a[aria-current="page"] { background: var(--gold); color: var(--navy-deep); }
+    .page-head {
+      background: linear-gradient(135deg, var(--navy) 0%, var(--navy-soft) 100%);
+      color: #fff; padding: 20px 24px;
+    }
+    .page-head h1 { margin: 0; font-size: 20px; }
+    .page-head p { margin: 4px 0 0; font-size: 13px; opacity: 0.8; }
+    /* ---- end shared design system ---- */
+
+    body {
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      margin: 0; background: var(--bg); color: var(--ink); line-height: 1.5;
+    }
+
+    /* Hero */
+    .hero {
+      background: linear-gradient(135deg, var(--navy-deep) 0%, var(--navy) 55%, var(--navy-soft) 100%);
+      color: #fff; padding: 72px 24px 64px; text-align: center;
+    }
+    .hero .eyebrow {
+      display: inline-block; background: rgba(212, 175, 55, 0.14); color: var(--gold);
+      border: 1px solid rgba(212, 175, 55, 0.45); border-radius: 999px;
+      font-size: 12px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
+      padding: 5px 14px; margin-bottom: 20px;
+      animation: pv-fade-up var(--dur-slow) var(--ease) both;
+    }
+    .hero h1 {
+      margin: 0 auto 14px; font-size: clamp(30px, 5vw, 44px); line-height: 1.15;
+      max-width: 640px; letter-spacing: -0.01em;
+      animation: pv-fade-up var(--dur-slow) var(--ease) 0.08s both;
+    }
+    .hero h1 em { font-style: normal; color: var(--gold); }
+    .hero .sub {
+      margin: 0 auto 30px; font-size: 16px; max-width: 560px; opacity: 0.85;
+      animation: pv-fade-up var(--dur-slow) var(--ease) 0.16s both;
+    }
+    .hero .actions {
+      display: flex; gap: 12px; justify-content: center; flex-wrap: wrap;
+      animation: pv-fade-up var(--dur-slow) var(--ease) 0.24s both;
+    }
+    .btn {
+      display: inline-block; font-weight: 600; font-size: 15px; text-decoration: none;
+      padding: 13px 26px; border-radius: 8px;
+      transition: background var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease),
+                  transform var(--dur-fast) var(--ease), box-shadow var(--dur-fast) var(--ease);
+    }
+    .btn:hover { transform: translateY(-1px); box-shadow: var(--shadow-lift); }
+    .btn:active { transform: translateY(0) scale(0.98); box-shadow: none; }
+    .btn-gold { background: var(--gold); color: var(--navy-deep); }
+    .btn-gold:hover { background: #e0bd4f; }
+    .btn-ghost { background: rgba(255, 255, 255, 0.1); color: #fff; border: 1px solid rgba(255, 255, 255, 0.35); }
+    .btn-ghost:hover { background: rgba(255, 255, 255, 0.18); }
+
+    /* How it works */
+    main { max-width: 960px; margin: 0 auto; padding: 56px 24px 24px; }
+    .section-title {
+      text-align: center; font-size: 15px; text-transform: uppercase; letter-spacing: 0.08em;
+      color: var(--gray); margin: 0 0 24px;
+    }
+    .features { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; }
+    .feature {
+      background: var(--card); border: 1px solid var(--line); border-radius: var(--radius);
+      padding: 24px; box-shadow: var(--shadow-sm);
+      animation: pv-fade-up var(--dur-slow) var(--ease) both;
+      transition: box-shadow var(--dur-fast) var(--ease), transform var(--dur-fast) var(--ease);
+    }
+    .feature:hover { box-shadow: var(--shadow-lift); transform: translateY(-2px); }
+    .feature:nth-child(2) { animation-delay: 0.08s; }
+    .feature:nth-child(3) { animation-delay: 0.16s; }
+    .feature .num {
+      display: inline-flex; align-items: center; justify-content: center;
+      width: 34px; height: 34px; border-radius: 999px; margin-bottom: 14px;
+      background: var(--gold-tint); border: 1px solid var(--gold); color: var(--navy);
+      font-weight: 700; font-size: 15px;
+    }
+    .feature h3 { margin: 0 0 6px; font-size: 16px; color: var(--navy); }
+    .feature p { margin: 0; font-size: 14px; color: var(--gray); }
+
+    /* Explore links */
+    .explore { margin-top: 48px; }
+    .explore-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; }
+    .explore-card {
+      display: block; text-decoration: none;
+      background: var(--card); border: 1px solid var(--line); border-radius: var(--radius);
+      border-top: 3px solid var(--gold);
+      padding: 22px 24px; box-shadow: var(--shadow-sm);
+      animation: pv-fade-up var(--dur-slow) var(--ease) both;
+      transition: box-shadow var(--dur-fast) var(--ease), transform var(--dur-fast) var(--ease);
+    }
+    .explore-card:hover { box-shadow: var(--shadow-lift); transform: translateY(-2px); }
+    .explore-card:active { transform: translateY(0); }
+    .explore-card:nth-child(2) { animation-delay: 0.08s; }
+    .explore-card:nth-child(3) { animation-delay: 0.16s; }
+    .explore-card h3 { margin: 0 0 6px; font-size: 16px; color: var(--navy); }
+    .explore-card p { margin: 0 0 12px; font-size: 13px; color: var(--gray); }
+    .explore-card .go { font-size: 13px; font-weight: 700; color: var(--navy); }
+    .explore-card .go::after {
+      content: "\2192"; display: inline-block; margin-left: 6px;
+      transition: transform var(--dur-fast) var(--ease);
+    }
+    .explore-card:hover .go::after { transform: translateX(4px); }
+    .locked {
+      display: inline-block; margin-left: 8px; font-size: 11px; font-weight: 700;
+      letter-spacing: 0.05em; text-transform: uppercase; color: var(--faint);
+      border: 1px solid var(--line); border-radius: 999px; padding: 2px 8px;
+      vertical-align: 2px;
+    }
+
+    footer {
+      text-align: center; font-size: 12px; color: var(--faint); padding: 40px 24px;
+      animation: pv-fade-in var(--dur-slow) var(--ease) both;
+    }
+    footer a { color: var(--gray); }
+  </style>
+</head>
+<body>
+  <nav class="site-nav">
+    <a class="brand" href="/" aria-current="page">Prop<span>Vibe</span></a>
+    <div class="site-nav-links">
+      <a href="/" aria-current="page">Home</a>
+      <a href="/dashboard">Dashboard</a>
+      <a href="/listing">Listing</a>
+      <a href="/internal-dashboard">Internal</a>
+      <a href="/privacy">Privacy</a>
+    </div>
+  </nav>
+
+  <section class="hero">
+    <span class="eyebrow">AI Real-Estate Marketing</span>
+    <h1>Every listing, posted <em>beautifully</em> &mdash; automatically.</h1>
+    <p class="sub">
+      PropVibe turns raw listing details into polished social posts: an AI-designed
+      poster, a caption written in your best-performing style, and a lead-qualifying
+      chat assistant on the landing page &mdash; all reviewed by you with one click.
+    </p>
+    <div class="actions">
+      <a class="btn btn-gold" href="/dashboard">Open the Dashboard</a>
+      <a class="btn btn-ghost" href="/listing">See an example listing</a>
+    </div>
+  </section>
+
+  <main>
+    <h2 class="section-title">How it works</h2>
+    <div class="features">
+      <div class="feature">
+        <span class="num">1</span>
+        <h3>Generate</h3>
+        <p>Each un-posted listing gets a 1080&times;1080 poster and an AI-written caption,
+           tuned to whichever caption style is currently performing best.</p>
+      </div>
+      <div class="feature">
+        <span class="num">2</span>
+        <h3>Approve &amp; publish</h3>
+        <p>You stay in the loop: review the post, tweak the price or lighting, then
+           Approve &amp; Post straight to your Facebook Page &mdash; or Skip it.</p>
+      </div>
+      <div class="feature">
+        <span class="num">3</span>
+        <h3>Learn &amp; qualify</h3>
+        <p>Tracked links measure real clicks, engagement feeds back into the style
+           picker, and an AI assistant chats with leads who click through.</p>
+      </div>
+    </div>
+
+    <section class="explore">
+      <h2 class="section-title">Explore</h2>
+      <div class="explore-grid">
+        <a class="explore-card" href="/dashboard">
+          <h3>Agent Dashboard</h3>
+          <p>Review the next auto-generated post, edit it, re-light the photo, and
+             approve or skip.</p>
+          <span class="go">Go to /dashboard</span>
+        </a>
+        <a class="explore-card" href="/listing">
+          <h3>Example Listing Page</h3>
+          <p>The page a lead lands on after clicking a post &mdash; property details
+             plus the AI leasing assistant.</p>
+          <span class="go">Go to /listing</span>
+        </a>
+        <a class="explore-card" href="/internal-dashboard">
+          <h3>Internal Dashboard<span class="locked">Secret required</span></h3>
+          <p>Read-only sales-flow view: posts, engagement, style performance and
+             leads. Gated behind the internal secret.</p>
+          <span class="go">Go to /internal-dashboard</span>
+        </a>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    PropVibe &middot; automated real-estate social posting &middot;
+    <a href="/privacy">Privacy policy</a>
+  </footer>
+</body>
+</html>

@@ -40,11 +40,13 @@ DESIGN NOTES
     1. Every table and field name has a sensible default AND an env override
        (AIRTABLE_POSTS_TABLE, AIRTABLE_FIELD_STYLE_TAG, ...), so a mismatch can
        be fixed with config, no code change.
-    2. On a write, if Airtable rejects a field as unknown, we log a clear
-       warning, drop just that field, and retry - so one renamed/missing column
-       never crashes the whole call. Reads look each value up by the expected
-       name, then case-insensitively, then by keyword, and treat a genuinely
-       absent field as a benign zero / skip.
+    2. On a write, if Airtable rejects a single field - either as an unknown
+       name, or as a value that column cannot hold (e.g. a linked-record
+       column handed a plain name) - we log a clear warning, drop just that
+       field, and retry. So one renamed, missing or wrongly-typed column never
+       crashes the whole call. Reads look each value up by the expected name,
+       then case-insensitively, then by keyword, and treat a genuinely absent
+       field as a benign zero / skip.
 """
 
 from __future__ import annotations
@@ -244,14 +246,87 @@ def _unknown_field_name(response: httpx.Response) -> str | None:
     return match.group(1) if match else None
 
 
+def _rejected_value(response: httpx.Response) -> str | None:
+    """
+    If a response rejected one of our VALUES, extract the offending value.
+
+    Distinct from _unknown_field_name: the column exists, it just can't hold
+    what we sent - most often a linked-record column being handed a plain
+    name. Airtable words this as ``Value "The Birch" is not a valid record
+    id...`` and, unhelpfully, never names the field, so we pull the quoted
+    value out and let the caller work backwards to which field held it.
+    """
+    try:
+        payload = response.json()
+    except ValueError:
+        return None
+
+    if not isinstance(payload, dict):
+        return None
+    error = payload.get("error")
+    if not isinstance(error, dict):
+        return None
+    if error.get("type") != "INVALID_VALUE_FOR_COLUMN":
+        return None
+
+    message = error.get("message") or ""
+    match = re.search(r'"([^"]+)"', message)
+    return match.group(1) if match else None
+
+
+def _drop_rejected_field(response: httpx.Response, working: dict, table: str) -> bool:
+    """
+    Remove whichever field a failed write complained about, if we can tell.
+
+    Returns True when a field was dropped (so the caller should retry) and
+    False when the failure isn't one we can recover from by shedding a field.
+    Handles both shapes of "just this one column is wrong": a name Airtable
+    doesn't recognise, and a value the column won't accept.
+    """
+    unknown = _unknown_field_name(response)
+    if unknown:
+        # Match the offending name to one of our keys (case-insensitively) so
+        # we drop the right one regardless of exact casing in the message.
+        key = next((k for k in working if k.lower() == unknown.lower()), unknown)
+        if key in working:
+            logger.warning(
+                "Airtable table %r has no field %r - skipping it for this record.",
+                table,
+                key,
+            )
+            working.pop(key)
+            return True
+        return False
+
+    rejected = _rejected_value(response)
+    if rejected is not None:
+        # The error quotes the value, not the column, so find the field we sent
+        # it in. Values are compared as strings because Airtable echoes them
+        # back that way.
+        key = next((k for k, v in working.items() if str(v) == rejected), None)
+        if key is not None:
+            logger.warning(
+                "Airtable table %r would not accept %r for field %r (check the "
+                "column's type) - skipping it for this record.",
+                table,
+                rejected,
+                key,
+            )
+            working.pop(key)
+            return True
+
+    return False
+
+
 def _create_record(table: str, fields: dict) -> str:
     """
     Create one record in ``table``, returning its Airtable record id.
 
-    Defensive against renamed/missing columns: if Airtable rejects a field as
-    unknown, we log a warning, drop that single field, and retry. If every field
-    ends up dropped we raise a clear error rather than silently creating an empty
-    row.
+    Defensive against a column being renamed, missing, or the wrong type: if
+    Airtable rejects a single field - either as an unknown name or as a value
+    the column can't hold - we log a warning, drop that field, and retry. If
+    every field ends up dropped we raise a clear error rather than silently
+    creating an empty row.
     """
     api_key, base_id = _require_credentials()
     url = _table_url(base_id, table)
@@ -294,20 +369,9 @@ def _create_record(table: str, fields: dict) -> str:
                 )
             return record_id
 
-        # A single unknown field? Drop it and retry rather than failing the row.
-        unknown = _unknown_field_name(response)
-        if unknown:
-            # Match the offending name to one of our keys (case-insensitively) so
-            # we drop the right one regardless of exact casing in the message.
-            key = next((k for k in working if k.lower() == unknown.lower()), unknown)
-            if key in working:
-                logger.warning(
-                    "Airtable table %r has no field %r - skipping it for this record.",
-                    table,
-                    key,
-                )
-                working.pop(key)
-                continue
+        # A single bad field? Drop it and retry rather than failing the row.
+        if _drop_rejected_field(response, working, table):
+            continue
 
         # Any other error is not something we can recover from by dropping fields.
         raise AirtableError(_error_message(response))
@@ -322,10 +386,11 @@ def _update_record(table: str, record_id: str, fields: dict) -> str:
 
     The PATCH counterpart to _create_record, with the same defences: fields
     whose value is None are omitted (so a caller can leave a column alone by
-    passing None), and a field Airtable rejects as unknown is logged, dropped,
-    and the write retried rather than failing the whole row. A PATCH leaves
-    every column we don't mention untouched - which is what keeps the Leads
-    table's Name/Contact intact when the chatbot updates a lead.
+    passing None), and a field Airtable rejects - unknown name or unusable
+    value - is logged, dropped, and the write retried rather than failing the
+    whole row. A PATCH leaves every column we don't mention untouched, which is
+    what keeps the Leads table's Name/Contact intact when the chatbot updates a
+    lead.
     """
     api_key, base_id = _require_credentials()
     url = f"{_table_url(base_id, table)}/{quote(record_id)}"
@@ -357,17 +422,8 @@ def _update_record(table: str, record_id: str, fields: dict) -> str:
         if response.is_success:
             return record_id
 
-        unknown = _unknown_field_name(response)
-        if unknown:
-            key = next((k for k in working if k.lower() == unknown.lower()), unknown)
-            if key in working:
-                logger.warning(
-                    "Airtable table %r has no field %r - skipping it for this record.",
-                    table,
-                    key,
-                )
-                working.pop(key)
-                continue
+        if _drop_rejected_field(response, working, table):
+            continue
 
         raise AirtableError(_error_message(response))
 
@@ -618,6 +674,16 @@ def upsert_lead_record(
     "Source" is always written as "Chatbot". "Name" and "Contact" are never
     touched: the assistant is instructed not to ask for them, so whatever a
     human has typed into those columns survives every update.
+
+    NOTE: as the base stands today, "Interested Listing" is a linked-record
+    column pointing at the Properties table, whose primary field is a computed
+    autonumber - so Airtable can neither match nor create a row there from a
+    condo name, and the write of that one field is dropped with a logged
+    warning (see _drop_rejected_field). Everything else on the row still
+    lands, and the listing stays recoverable from the tracking id. Making the
+    condo name stick needs a change in Airtable, not here: either retype
+    "Interested Listing" as a plain text field, or give Properties a
+    non-computed primary field and populate it from room_listings.csv.
 
     Args:
         tracking_id:        The id from the lead's tracking link - the key this

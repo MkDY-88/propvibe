@@ -5,19 +5,64 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>PropVibe - Approve Post</title>
   <style>
-    :root { --navy: #1a2b4c; --gold: #d4af37; --gray: #4a5568; --line: #e2e8f0; }
+    /* ---- PropVibe shared design system (keep identical across pages) ---- */
+    :root {
+      --navy: #1a2b4c; --navy-deep: #14213a; --navy-soft: #24365c;
+      --gold: #d4af37; --gold-tint: #fbf7e8;
+      --gray: #4a5568; --line: #e2e8f0; --ink: #1a202c;
+      --bg: #f6f7f9; --card: #ffffff; --chip: #eef1f6; --faint: #94a3b8;
+      --radius: 10px; --radius-sm: 6px;
+      --shadow-sm: 0 1px 3px rgba(26, 43, 76, 0.08);
+      --shadow-md: 0 10px 30px rgba(26, 43, 76, 0.08);
+      --shadow-lift: 0 8px 20px rgba(26, 43, 76, 0.16);
+      --ease: cubic-bezier(0.33, 1, 0.68, 1);
+      --dur-fast: 0.16s; --dur: 0.3s; --dur-slow: 0.55s;
+    }
     * { box-sizing: border-box; }
+    @keyframes pv-fade-up { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } }
+    @keyframes pv-fade-in { from { opacity: 0; } to { opacity: 1; } }
+    @keyframes pv-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.45; } }
+    @keyframes pv-spin { to { transform: rotate(360deg); } }
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after {
+        animation-duration: 0.01ms !important; animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+      }
+    }
+    .site-nav {
+      background: var(--navy-deep); border-bottom: 3px solid var(--gold);
+      display: flex; align-items: center; justify-content: space-between;
+      flex-wrap: wrap; gap: 8px 16px; padding: 13px 24px;
+    }
+    .site-nav .brand {
+      color: #fff; font-weight: 700; font-size: 17px; letter-spacing: 0.02em;
+      text-decoration: none;
+    }
+    .site-nav .brand span { color: var(--gold); }
+    .site-nav-links { display: flex; flex-wrap: wrap; gap: 4px; }
+    .site-nav-links a {
+      color: rgba(255, 255, 255, 0.82); text-decoration: none; font-size: 13px;
+      font-weight: 600; padding: 7px 12px; border-radius: 999px;
+      transition: background var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease);
+    }
+    .site-nav-links a:hover { background: rgba(255, 255, 255, 0.14); color: #fff; }
+    .site-nav-links a[aria-current="page"] { background: var(--gold); color: var(--navy-deep); }
+    .page-head {
+      background: linear-gradient(135deg, var(--navy) 0%, var(--navy-soft) 100%);
+      color: #fff; padding: 20px 24px;
+    }
+    .page-head h1 { margin: 0; font-size: 20px; }
+    .page-head p { margin: 4px 0 0; font-size: 13px; opacity: 0.8; }
+    /* ---- end shared design system ---- */
+
     body {
       font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
-      margin: 0; background: #f6f7f9; color: #1a202c; line-height: 1.5;
+      margin: 0; background: var(--bg); color: var(--ink); line-height: 1.5;
     }
-    header { background: var(--navy); color: #fff; padding: 18px 24px; }
-    header h1 { margin: 0; font-size: 20px; }
-    header p { margin: 4px 0 0; font-size: 13px; opacity: 0.8; }
-    main { max-width: 560px; margin: 0 auto; padding: 24px; }
+    main { max-width: 560px; margin: 0 auto; padding: 24px; animation: pv-fade-up var(--dur-slow) var(--ease) both; }
     .card {
-      background: #fff; border: 1px solid var(--line); border-radius: 10px;
-      padding: 20px;
+      background: var(--card); border: 1px solid var(--line); border-radius: var(--radius);
+      padding: 20px; box-shadow: var(--shadow-sm);
     }
     h2 { font-size: 15px; text-transform: uppercase; letter-spacing: 0.04em;
          color: var(--gray); margin: 0 0 16px; }
@@ -26,71 +71,105 @@
     .listing-price { font-size: 22px; font-weight: 700; color: var(--navy); margin: 0 0 4px; }
     .listing-features { font-size: 13px; color: var(--gray); margin: 0 0 16px; }
     button {
-      font: inherit; font-weight: 600; border: 0; border-radius: 6px;
+      font: inherit; font-weight: 600; border: 0; border-radius: var(--radius-sm);
       padding: 11px 16px; cursor: pointer;
+      transition: background var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease),
+                  transform var(--dur-fast) var(--ease), box-shadow var(--dur-fast) var(--ease),
+                  opacity var(--dur-fast) var(--ease);
     }
+    button:hover:not(:disabled) { transform: translateY(-1px); box-shadow: var(--shadow-lift); }
+    button:active:not(:disabled) { transform: translateY(0) scale(0.98); box-shadow: none; }
     .btn-row { display: flex; gap: 12px; margin-top: 18px; }
     .btn-row > button { flex: 1; }
     .btn-approve { background: #1877f2; color: #fff; }
     .btn-approve:disabled { background: #9db8de; cursor: not-allowed; }
-    .btn-skip { background: #eef1f6; color: var(--navy); }
+    .btn-skip { background: var(--chip); color: var(--navy); }
     .btn-skip:disabled { opacity: 0.55; cursor: not-allowed; }
-    .btn-edit { background: #eef1f6; color: var(--navy); }
+    .btn-edit { background: var(--chip); color: var(--navy); }
     .btn-edit:disabled { opacity: 0.55; cursor: not-allowed; }
     .btn-save { background: #1a6b3a; color: #fff; }
-    .btn-save:disabled { background: #9fc7ad; cursor: not-allowed; }
-    .btn-cancel { background: #eef1f6; color: var(--navy); }
+    .btn-save:disabled { background: #9fc7ad; cursor: not-allowed; animation: pv-pulse 1.2s ease-in-out infinite; }
+    .btn-cancel { background: var(--chip); color: var(--navy); }
     #edit-panel input[type="text"], #edit-panel textarea {
       width: 100%; font: inherit; font-size: 14px; padding: 8px 10px;
-      border: 1px solid var(--line); border-radius: 6px; background: #fff;
-      color: #1a202c;
+      border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--card);
+      color: var(--ink); outline: none;
+      transition: border-color var(--dur-fast) var(--ease), box-shadow var(--dur-fast) var(--ease);
     }
+    #edit-panel input[type="text"]:focus, #edit-panel textarea:focus {
+      border-color: var(--navy); box-shadow: 0 0 0 3px rgba(26, 43, 76, 0.12);
+    }
+    #edit-panel { animation: pv-fade-up var(--dur) var(--ease) both; }
     #edit-panel textarea { resize: vertical; min-height: 80px; }
     .warning {
       margin-top: 6px; padding: 8px 10px; background: #fff8e6;
-      border: 1px solid #f0d78c; border-radius: 6px; color: #8a6116; font-size: 13px;
+      border: 1px solid #f0d78c; border-radius: var(--radius-sm); color: #8a6116; font-size: 13px;
+      animation: pv-fade-up var(--dur) var(--ease) both;
     }
-    #poster { width: 100%; border-radius: 8px; border: 1px solid var(--line); display: block; margin-bottom: 16px; }
+    #poster {
+      width: 100%; border-radius: 8px; border: 1px solid var(--line); display: block;
+      margin-bottom: 16px; box-shadow: var(--shadow-sm);
+    }
     .toggle-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 8px 0 16px; }
     .toggle-cell {
-      font-size: 12px; padding: 8px 4px; border: 1px solid var(--line); border-radius: 6px;
-      background: #eef1f6; color: var(--navy); cursor: pointer; text-transform: capitalize;
+      font-size: 12px; padding: 8px 4px; border: 1px solid var(--line); border-radius: var(--radius-sm);
+      background: var(--chip); color: var(--navy); cursor: pointer; text-transform: capitalize;
     }
-    .toggle-cell.active { background: var(--navy); color: #fff; }
-    .toggle-cell:disabled { opacity: 0.55; cursor: not-allowed; }
+    .toggle-cell:hover:not(:disabled) { border-color: var(--navy); transform: translateY(-1px); box-shadow: var(--shadow-sm); }
+    .toggle-cell.active { background: var(--navy); color: #fff; border-color: var(--navy); }
+    .toggle-cell:disabled { opacity: 0.55; cursor: not-allowed; animation: pv-pulse 1.1s ease-in-out infinite; }
     .caption-box {
-      white-space: pre-wrap; font-size: 14px; padding: 12px 14px; background: #f6f7f9;
-      border: 1px solid var(--line); border-radius: 6px; margin-bottom: 12px;
+      white-space: pre-wrap; font-size: 14px; padding: 12px 14px; background: var(--bg);
+      border: 1px solid var(--line); border-radius: var(--radius-sm); margin-bottom: 12px;
     }
     label { display: block; font-size: 13px; font-weight: 600; margin: 12px 0 4px; }
     .tags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
     .tag {
-      background: #eef1f6; color: var(--navy); font-size: 13px; font-weight: 600;
+      background: var(--chip); color: var(--navy); font-size: 13px; font-weight: 600;
       padding: 4px 9px; border-radius: 999px;
     }
     .cta {
-      margin-top: 6px; padding: 10px 12px; background: #fbf7e8;
-      border: 1px solid var(--gold); border-radius: 6px; font-weight: 600;
+      margin-top: 6px; padding: 10px 12px; background: var(--gold-tint);
+      border: 1px solid var(--gold); border-radius: var(--radius-sm); font-weight: 600;
     }
     .muted { color: var(--gray); font-size: 13px; }
     .error {
       margin-top: 16px; padding: 12px 14px; background: #fdecec;
-      border: 1px solid #f5b5b5; border-radius: 6px; color: #9b1c1c; font-size: 14px;
+      border: 1px solid #f5b5b5; border-radius: var(--radius-sm); color: #9b1c1c; font-size: 14px;
+      animation: pv-fade-up var(--dur) var(--ease) both;
     }
     .success {
       margin-top: 16px; padding: 12px 14px; background: #e8f5ec;
-      border: 1px solid #9ed6b0; border-radius: 6px; color: #1a6b3a; font-size: 14px;
+      border: 1px solid #9ed6b0; border-radius: var(--radius-sm); color: #1a6b3a; font-size: 14px;
+      animation: pv-fade-up var(--dur) var(--ease) both;
     }
     .success a { color: #1877f2; font-weight: 600; }
     .hidden { display: none; }
+    #result { animation: pv-fade-up var(--dur) var(--ease) both; }
     .placeholder {
       color: var(--gray); font-size: 14px; text-align: center; padding: 40px 12px;
+    }
+    #placeholder::before {
+      content: ""; display: block; width: 28px; height: 28px; margin: 0 auto 14px;
+      border-radius: 50%; border: 3px solid var(--chip); border-top-color: var(--gold);
+      animation: pv-spin 0.8s linear infinite;
     }
   </style>
 </head>
 <body>
-  <header>
-    <h1>PropVibe</h1>
+  <nav class="site-nav">
+    <a class="brand" href="/">Prop<span>Vibe</span></a>
+    <div class="site-nav-links">
+      <a href="/">Home</a>
+      <a href="/dashboard" aria-current="page">Dashboard</a>
+      <a href="/listing">Listing</a>
+      <a href="/internal-dashboard">Internal</a>
+      <a href="/privacy">Privacy</a>
+    </div>
+  </nav>
+
+  <header class="page-head">
+    <h1>Agent Dashboard</h1>
     <p>The next listing is generated automatically. Review it, then Approve &amp; Post or Skip.</p>
   </header>
 

@@ -59,7 +59,17 @@
       font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
       margin: 0; background: var(--bg); color: var(--ink); line-height: 1.5;
     }
-    main { max-width: 560px; margin: 0 auto; padding: 24px; animation: pv-fade-up var(--dur-slow) var(--ease) both; }
+    main { max-width: 1100px; margin: 0 auto; padding: 24px; animation: pv-fade-up var(--dur-slow) var(--ease) both; }
+    /* Desktop: listing details + poster on the left, lighting/weather grid and
+       post content on the right, so the toggles sit beside the poster instead
+       of below the fold. Narrow screens collapse back to one 560px column. */
+    .result-grid { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 4fr); gap: 8px 28px; align-items: start; }
+    .result-col > label:first-child { margin-top: 0; }
+    @media (max-width: 920px) {
+      main { max-width: 560px; }
+      .result-grid { grid-template-columns: minmax(0, 1fr); }
+      .result-col > label:first-child { margin-top: 12px; }
+    }
     .card {
       background: var(--card); border: 1px solid var(--line); border-radius: var(--radius);
       padding: 20px; box-shadow: var(--shadow-sm);
@@ -118,6 +128,7 @@
     .toggle-cell:hover:not(:disabled) { border-color: var(--navy); transform: translateY(-1px); box-shadow: var(--shadow-sm); }
     .toggle-cell.active { background: var(--navy); color: #fff; border-color: var(--navy); }
     .toggle-cell:disabled { opacity: 0.55; cursor: not-allowed; animation: pv-pulse 1.1s ease-in-out infinite; }
+    .toggle-cell-original { grid-column: 1 / -1; }
     .caption-box {
       white-space: pre-wrap; font-size: 14px; padding: 12px 14px; background: var(--bg);
       border: 1px solid var(--line); border-radius: var(--radius-sm); margin-bottom: 12px;
@@ -180,59 +191,64 @@
 
       <div id="placeholder" class="placeholder">Finding the next listing&hellip;</div>
 
-      <div id="result" class="hidden">
-        <p class="listing-heading" id="listing-heading"></p>
-        <p class="listing-address" id="listing-address"></p>
-        <p class="listing-price" id="listing-price"></p>
-        <p class="listing-features" id="listing-features"></p>
+      <div id="result" class="result-grid hidden">
+        <div class="result-col">
+          <p class="listing-heading" id="listing-heading"></p>
+          <p class="listing-address" id="listing-address"></p>
+          <p class="listing-price" id="listing-price"></p>
+          <p class="listing-features" id="listing-features"></p>
 
-        <img id="poster" alt="Generated poster" />
-
-        <label>Lighting &amp; weather</label>
-        <div class="toggle-grid" id="toggle-grid">
-          <button type="button" class="toggle-cell" data-time="morning" data-weather="sunny">Morning · Sunny</button>
-          <button type="button" class="toggle-cell" data-time="morning" data-weather="cloudy">Morning · Cloudy</button>
-          <button type="button" class="toggle-cell" data-time="morning" data-weather="rainy">Morning · Rainy</button>
-          <button type="button" class="toggle-cell" data-time="evening" data-weather="sunny">Evening · Sunny</button>
-          <button type="button" class="toggle-cell" data-time="evening" data-weather="cloudy">Evening · Cloudy</button>
-          <button type="button" class="toggle-cell" data-time="evening" data-weather="rainy">Evening · Rainy</button>
-          <button type="button" class="toggle-cell" data-time="night" data-weather="sunny">Night · Sunny</button>
-          <button type="button" class="toggle-cell" data-time="night" data-weather="cloudy">Night · Cloudy</button>
-          <button type="button" class="toggle-cell" data-time="night" data-weather="rainy">Night · Rainy</button>
+          <img id="poster" alt="Generated poster" />
         </div>
 
-        <label>Caption</label>
-        <div id="caption" class="caption-box"></div>
-        <div id="edit-warning" class="warning hidden"></div>
+        <div class="result-col">
+          <label>Lighting &amp; weather</label>
+          <div class="toggle-grid" id="toggle-grid">
+            <button type="button" class="toggle-cell toggle-cell-original" id="toggle-original">Show Original</button>
+            <button type="button" class="toggle-cell" data-time="morning" data-weather="sunny">Morning · Sunny</button>
+            <button type="button" class="toggle-cell" data-time="morning" data-weather="cloudy">Morning · Cloudy</button>
+            <button type="button" class="toggle-cell" data-time="morning" data-weather="rainy">Morning · Rainy</button>
+            <button type="button" class="toggle-cell" data-time="evening" data-weather="sunny">Evening · Sunny</button>
+            <button type="button" class="toggle-cell" data-time="evening" data-weather="cloudy">Evening · Cloudy</button>
+            <button type="button" class="toggle-cell" data-time="evening" data-weather="rainy">Evening · Rainy</button>
+            <button type="button" class="toggle-cell" data-time="night" data-weather="sunny">Night · Sunny</button>
+            <button type="button" class="toggle-cell" data-time="night" data-weather="cloudy">Night · Cloudy</button>
+            <button type="button" class="toggle-cell" data-time="night" data-weather="rainy">Night · Rainy</button>
+          </div>
 
-        <label>Hashtags</label>
-        <div id="hashtags" class="tags"></div>
-
-        <label>Call to action</label>
-        <div id="cta" class="cta"></div>
-
-        <div class="btn-row">
-          <button id="skip-btn" class="btn-skip" type="button">Skip</button>
-          <button id="edit-btn" class="btn-edit" type="button">Edit</button>
-          <button id="approve-btn" class="btn-approve" type="button">Approve &amp; Post</button>
-        </div>
-
-        <div id="edit-panel" class="hidden">
           <label>Caption</label>
-          <textarea id="edit-caption"></textarea>
+          <div id="caption" class="caption-box"></div>
+          <div id="edit-warning" class="warning hidden"></div>
 
-          <label>Price</label>
-          <input id="edit-price" type="text" />
+          <label>Hashtags</label>
+          <div id="hashtags" class="tags"></div>
 
-          <label>Location</label>
-          <input id="edit-location" type="text" />
-
-          <label>Features</label>
-          <input id="edit-features" type="text" />
+          <label>Call to action</label>
+          <div id="cta" class="cta"></div>
 
           <div class="btn-row">
-            <button id="cancel-btn" class="btn-cancel" type="button">Cancel</button>
-            <button id="save-btn" class="btn-save" type="button">Save</button>
+            <button id="skip-btn" class="btn-skip" type="button">Skip</button>
+            <button id="edit-btn" class="btn-edit" type="button">Edit</button>
+            <button id="approve-btn" class="btn-approve" type="button">Approve &amp; Post</button>
+          </div>
+
+          <div id="edit-panel" class="hidden">
+            <label>Caption</label>
+            <textarea id="edit-caption"></textarea>
+
+            <label>Price</label>
+            <input id="edit-price" type="text" />
+
+            <label>Location</label>
+            <input id="edit-location" type="text" />
+
+            <label>Features</label>
+            <input id="edit-features" type="text" />
+
+            <div class="btn-row">
+              <button id="cancel-btn" class="btn-cancel" type="button">Cancel</button>
+              <button id="save-btn" class="btn-save" type="button">Save</button>
+            </div>
           </div>
         </div>
       </div>
@@ -262,6 +278,7 @@
     const cancelBtn = document.getElementById("cancel-btn");
     const saveBtn = document.getElementById("save-btn");
     const toggleGrid = document.getElementById("toggle-grid");
+    const originalToggle = document.getElementById("toggle-original");
 
     // Everything /publish-post needs for the listing currently on screen, plus
     // the plain-text fields (price/address/features/photo_filename) an Edit
@@ -271,6 +288,18 @@
     // The caption's value at the moment Edit was opened, so Save can tell
     // whether the human touched it (used for the stale-caption warning).
     let captionAtOpen = null;
+
+    // The poster built from the untouched pool photo, exactly as
+    // /auto-create-post (or the latest /regenerate-poster) returned it.
+    // "Show Original" restores this from memory - no request of any kind.
+    let originalPoster = null;
+
+    // Lighting/weather posters already fetched for the listing on screen,
+    // keyed "time|weather", so re-picking a combo repaints instantly instead
+    // of calling /toggle-photo-condition again. Reset whenever the listing
+    // changes and whenever Save redraws the text overlay - the remembered
+    // posters have the old price/location/features burnt in.
+    let comboCache = {};
 
     function showStatus(className, html) {
       statusBox.className = className;
@@ -285,6 +314,14 @@
       approveBtn.disabled = disabled;
       skipBtn.disabled = disabled;
       editBtn.disabled = disabled;
+    }
+
+    // Marks exactly one cell of the lighting/weather grid as the one whose
+    // poster is on screen (pass originalToggle for the untouched photo).
+    function setActiveToggle(target) {
+      toggleGrid.querySelectorAll(".toggle-cell").forEach((c) =>
+        c.classList.toggle("active", c === target)
+      );
     }
 
     // Repaints the card's read-only display fields from `current`. Shared by
@@ -332,9 +369,11 @@
 
       updateDisplayFields();
 
-      // A freshly-loaded candidate always starts on its untouched poster -
-      // no combo should read as selected.
-      toggleGrid.querySelectorAll(".toggle-cell").forEach((c) => c.classList.remove("active"));
+      // A freshly-loaded candidate always starts on its untouched poster,
+      // and remembered combos belong to the previous listing.
+      originalPoster = payload.poster_base64;
+      comboCache = {};
+      setActiveToggle(originalToggle);
 
       editPanel.classList.add("hidden");
       editWarning.classList.add("hidden");
@@ -449,8 +488,12 @@
           }
           current.poster_base64 = payload.poster_base64;
           // /regenerate-poster always restarts from the untouched pool
-          // photo, discarding any active AI lighting/weather edit.
-          toggleGrid.querySelectorAll(".toggle-cell").forEach((c) => c.classList.remove("active"));
+          // photo, discarding any active AI lighting/weather edit - so this
+          // is the new "original", and the remembered combo posters (old
+          // text burnt in) can't be reused.
+          originalPoster = payload.poster_base64;
+          comboCache = {};
+          setActiveToggle(originalToggle);
         }
 
         current.caption = newCaption;
@@ -486,6 +529,25 @@
       if (!btn || !current) return;
       clearStatus();
 
+      // Show Original: repaint from the poster already in memory - no
+      // fal.ai, no request at all.
+      if (btn === originalToggle) {
+        current.poster_base64 = originalPoster;
+        updateDisplayFields();
+        setActiveToggle(btn);
+        return;
+      }
+
+      // A combo fetched earlier this session repaints from memory too, so
+      // flipping back and forth between picked combos feels instant.
+      const comboKey = btn.dataset.time + "|" + btn.dataset.weather;
+      if (comboCache[comboKey]) {
+        current.poster_base64 = comboCache[comboKey];
+        updateDisplayFields();
+        setActiveToggle(btn);
+        return;
+      }
+
       const cells = [...toggleGrid.querySelectorAll(".toggle-cell")];
       cells.forEach((c) => (c.disabled = true));
       setButtonsDisabled(true);
@@ -516,8 +578,9 @@
         // Approve & Post reads current.poster_base64 fresh at click time, so
         // this alone makes it publish whichever toggle is on screen.
         current.poster_base64 = payload.poster_base64;
+        comboCache[comboKey] = payload.poster_base64;
         updateDisplayFields();
-        cells.forEach((c) => c.classList.toggle("active", c === btn));
+        setActiveToggle(btn);
       } catch (err) {
         showStatus("error", "Could not reach the server. Is the backend running?");
       } finally {

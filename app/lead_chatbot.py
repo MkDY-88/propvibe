@@ -17,8 +17,11 @@ dict::
 
 `status` is deliberately conservative: everyone starts as a "lead" and only
 becomes a "prospect" once the conversation has given real signal on BOTH
-budget fit and move-in timeline. The two *_signal fields are what the caller
-logs to Airtable so a human can see why - they're never shown to the lead.
+budget fit and move-in timeline. That is asked for in the prompt AND enforced
+in `_normalise`, which downgrades any claimed "prospect" that did not come
+with both signals - so the rule holds whether or not the model cooperates.
+The two *_signal fields are what the caller logs to Airtable so a human can
+see why - they're never shown to the lead.
 
 `extract_search_intent()` is the companion call: it reads the WHOLE
 conversation and reports whether the lead needs to see OTHER properties, plus
@@ -477,22 +480,52 @@ def _normalise(parsed: dict) -> dict:
     Guarantees a non-empty `reply`, a `status` that is exactly "lead" or
     "prospect" (anything unrecognised falls back to "lead" - the conservative
     side), and two signal fields that are either a clean string or None.
+
+    It also enforces the rule the STATUS RULES prompt states: "prospect"
+    requires real signal on BOTH budget and timeline. The prompt asks for that
+    and now gets it, but asking is not the same as guaranteeing - this used to
+    come back "prospect" off a clear budget with no mention of moving at all.
+    Deciding it here instead makes it true by construction, and the two signal
+    fields are the right thing to decide it from: they are what a human reads
+    off the Airtable row, so a "prospect" with nothing in its timeline column
+    is not a qualified lead, it is a mislabelled one.
     """
     reply = parsed.get("reply")
     if not isinstance(reply, str) or not reply.strip():
         raise ChatError("The assistant's response was missing a usable 'reply'.")
+
+    # Cleaned first, because the status below is derived from them. Note
+    # _optional_signal also turns a literal "null"/"unknown" string into None,
+    # so a model writing the word instead of emitting JSON null cannot talk its
+    # way past this either.
+    budget_signal = _optional_signal(parsed.get("budget_signal"))
+    timeline_signal = _optional_signal(parsed.get("timeline_signal"))
 
     raw_status = parsed.get("status")
     status = raw_status.strip().lower() if isinstance(raw_status, str) else ""
     if status != STATUS_PROSPECT:
         # Unknown/missing status means we haven't earned "prospect" yet.
         status = STATUS_LEAD
+    elif budget_signal is None or timeline_signal is None:
+        # Backstop, not a replacement for the prompt: whatever it claimed, it
+        # has not reported both signals, so it has not earned "prospect".
+        # Logged at warning like the other model-contract violations in this
+        # module - a "prospect" with a missing signal is the model
+        # contradicting its own output, and a silent backstop is one nobody
+        # notices has started carrying weight. Nothing here configures INFO.
+        logger.warning(
+            "Claimed 'prospect' without both signals - recording as 'lead' "
+            "(budget_signal=%s, timeline_signal=%s)",
+            "set" if budget_signal else "missing",
+            "set" if timeline_signal else "missing",
+        )
+        status = STATUS_LEAD
 
     return {
         "reply": reply.strip(),
         "status": status,
-        "budget_signal": _optional_signal(parsed.get("budget_signal")),
-        "timeline_signal": _optional_signal(parsed.get("timeline_signal")),
+        "budget_signal": budget_signal,
+        "timeline_signal": timeline_signal,
     }
 
 

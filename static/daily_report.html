@@ -5,17 +5,44 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta name="robots" content="noindex, nofollow" />
   <title>PropVibe - End-of-Day Report</title>
+  <!-- Display + body pairing (Fraunces / Plus Jakarta Sans). Loaded
+       non-blocking on purpose - media="print" flipped to "all" on load - so a
+       slow or unreachable CDN can never hold up first paint. If it never
+       arrives, the --font-display / --font-body stacks fall back to system
+       faces and the page is merely plainer, never broken. -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" media="print" onload="this.media='all'"
+        href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500..700&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" />
+  <noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500..700&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" /></noscript>
   <style>
     /* ---- PropVibe shared design system (keep identical across pages) ---- */
     :root {
       --navy: #1a2b4c; --navy-deep: #14213a; --navy-soft: #24365c;
-      --gold: #d4af37; --gold-tint: #fbf7e8;
+      --gold: #d4af37; --gold-tint: #fbf7e8; --gold-deep: #a8842a;
       --gray: #4a5568; --line: #e2e8f0; --ink: #1a202c;
       --bg: #f6f7f9; --card: #ffffff; --chip: #eef1f6; --faint: #94a3b8;
-      --radius: 10px; --radius-sm: 6px;
-      --shadow-sm: 0 1px 3px rgba(26, 43, 76, 0.08);
-      --shadow-md: 0 10px 30px rgba(26, 43, 76, 0.08);
-      --shadow-lift: 0 8px 20px rgba(26, 43, 76, 0.16);
+      --radius: 10px; --radius-sm: 6px; --radius-lg: 16px;
+
+      /* Type pairing: a high-contrast display serif for headlines and figures
+         over a clean geometric sans for everything else. Both stacks end in
+         system faces, so a slow or blocked Google Fonts CDN costs the page its
+         personality and nothing else - no layout shift, no invisible text
+         (the CDN link is non-blocking and uses font-display: swap). */
+      --font-display: "Fraunces", "Iowan Old Style", Georgia, "Times New Roman", serif;
+      --font-body: "Plus Jakarta Sans", system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+
+      /* Elevation is two-layer on purpose: a tight contact shadow plus a broad
+         ambient one, so a card reads as lifted off the page rather than drawn
+         on it. --shadow-lift is the hover step up from --shadow-sm/-md. */
+      --shadow-sm: 0 1px 2px rgba(20, 33, 58, 0.05), 0 1px 3px rgba(20, 33, 58, 0.06);
+      --shadow-md: 0 2px 4px rgba(20, 33, 58, 0.05), 0 12px 28px rgba(20, 33, 58, 0.09);
+      --shadow-lg: 0 4px 8px rgba(20, 33, 58, 0.06), 0 24px 48px rgba(20, 33, 58, 0.12);
+      --shadow-lift: 0 4px 10px rgba(20, 33, 58, 0.08), 0 18px 34px rgba(20, 33, 58, 0.14);
+      --shadow-gold: 0 4px 14px rgba(212, 175, 55, 0.3);
+      --ring-navy: 0 0 0 3px rgba(26, 43, 76, 0.12);
+      --line-hover: #ccd6e6;
+
       --ease: cubic-bezier(0.33, 1, 0.68, 1);
       --dur-fast: 0.16s; --dur: 0.3s; --dur-slow: 0.55s;
     }
@@ -24,51 +51,113 @@
     @keyframes pv-fade-in { from { opacity: 0; } to { opacity: 1; } }
     @keyframes pv-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.45; } }
     @keyframes pv-spin { to { transform: rotate(360deg); } }
+    @keyframes pv-live { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.35; transform: scale(0.82); } }
     @media (prefers-reduced-motion: reduce) {
       *, *::before, *::after {
         animation-duration: 0.01ms !important; animation-iteration-count: 1 !important;
         transition-duration: 0.01ms !important;
       }
     }
+
+    /* Scroll reveal. Gated behind .pv-reveal on <html>, which only JS adds, so
+       with JS off (or if the observer never runs) every section is simply
+       visible from the start instead of stuck at opacity 0. */
+    .pv-reveal [data-reveal] {
+      opacity: 0; transform: translateY(20px);
+      transition: opacity 0.7s var(--ease), transform 0.7s var(--ease);
+    }
+    .pv-reveal [data-reveal].pv-in { opacity: 1; transform: none; }
+    @media (prefers-reduced-motion: reduce) {
+      .pv-reveal [data-reveal] { opacity: 1; transform: none; }
+    }
+
+    /* Shared card micro-interaction: hover lifts, edge warms, shadow deepens.
+       Anything card-like opts in with class="pv-lift" rather than each page
+       re-declaring its own hover rule. */
+    .pv-lift {
+      transition: transform var(--dur-fast) var(--ease), box-shadow var(--dur-fast) var(--ease),
+                  border-color var(--dur-fast) var(--ease);
+    }
+    .pv-lift:hover { transform: translateY(-3px); box-shadow: var(--shadow-lift); border-color: var(--line-hover); }
+    .pv-lift:active { transform: translateY(-1px); }
+
+    /* Gold cap for an accented card - the same directional sheen as the nav
+       rule, so the motif reads as one idea at three scales (nav, card, tick).
+       Clips with overflow, so it goes on cards whose content can't be cut off:
+       not on anything holding a scrolling table or a sticky header. */
+    .pv-accent { position: relative; overflow: hidden; }
+    .pv-accent::before {
+      content: ""; position: absolute; top: 0; left: 0; right: 0; height: 3px;
+      background: linear-gradient(90deg, var(--gold) 0%, var(--gold) 30%,
+                  rgba(212, 175, 55, 0.32) 72%, rgba(212, 175, 55, 0.08) 100%);
+    }
+
+    /* The gold motif: a directional sheen that fades left-to-right, used as the
+       rule under the nav and as the cap on accented cards. Not a flat band -
+       that's the bit that reads as generic. */
     .site-nav {
-      background: var(--navy-deep); border-bottom: 3px solid var(--gold);
+      position: relative; background: linear-gradient(180deg, #1b2c49 0%, var(--navy-deep) 100%);
       display: flex; align-items: center; justify-content: space-between;
       flex-wrap: wrap; gap: 8px 16px; padding: 13px 24px;
     }
+    .site-nav::after {
+      content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 3px;
+      background: linear-gradient(90deg, var(--gold) 0%, var(--gold) 26%,
+                  rgba(212, 175, 55, 0.38) 64%, rgba(212, 175, 55, 0.1) 100%);
+    }
     .site-nav .brand {
-      color: #fff; font-weight: 700; font-size: 17px; letter-spacing: 0.02em;
-      text-decoration: none;
+      color: #fff; font-family: var(--font-display); font-weight: 600; font-size: 20px;
+      letter-spacing: -0.01em; text-decoration: none; position: relative;
     }
     .site-nav .brand span { color: var(--gold); }
-    .site-nav-links { display: flex; flex-wrap: wrap; gap: 4px; }
+    .site-nav-links { display: flex; flex-wrap: wrap; gap: 4px; position: relative; }
     .site-nav-links a {
       color: rgba(255, 255, 255, 0.82); text-decoration: none; font-size: 13px;
       font-weight: 600; padding: 7px 12px; border-radius: 999px;
-      transition: background var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease);
+      transition: background var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease),
+                  box-shadow var(--dur-fast) var(--ease);
     }
     .site-nav-links a:hover { background: rgba(255, 255, 255, 0.14); color: #fff; }
-    .site-nav-links a[aria-current="page"] { background: var(--gold); color: var(--navy-deep); }
-    .page-head {
-      background: linear-gradient(135deg, var(--navy) 0%, var(--navy-soft) 100%);
-      color: #fff; padding: 20px 24px;
+    .site-nav-links a[aria-current="page"] {
+      background: var(--gold); color: var(--navy-deep); box-shadow: var(--shadow-gold);
     }
-    .page-head h1 { margin: 0; font-size: 20px; }
-    .page-head p { margin: 4px 0 0; font-size: 13px; opacity: 0.8; }
+    .page-head {
+      position: relative; overflow: hidden;
+      background: linear-gradient(135deg, var(--navy) 0%, var(--navy-soft) 100%);
+      color: #fff; padding: 22px 24px;
+    }
+    /* Off-canvas gold glow, top right - the same light source as the hero. */
+    .page-head::before {
+      content: ""; position: absolute; top: -140px; right: -60px; width: 360px; height: 360px;
+      background: radial-gradient(circle, rgba(212, 175, 55, 0.17) 0%, rgba(212, 175, 55, 0) 70%);
+      pointer-events: none;
+    }
+    .page-head::after {
+      content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 1px;
+      background: linear-gradient(90deg, rgba(212, 175, 55, 0.85), rgba(212, 175, 55, 0.12));
+    }
+    .page-head h1 {
+      position: relative; margin: 0; font-family: var(--font-display); font-weight: 600;
+      font-size: 24px; letter-spacing: -0.01em;
+    }
+    .page-head p { position: relative; margin: 5px 0 0; font-size: 13px; opacity: 0.82; }
     /* ---- end shared design system ---- */
 
     body {
-      font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      font-family: var(--font-body);
       margin: 0; background: var(--bg); color: var(--ink); line-height: 1.5;
     }
     main { max-width: 780px; margin: 0 auto; padding: 24px; animation: pv-fade-up var(--dur-slow) var(--ease) both; }
     section { margin-bottom: 28px; }
+    /* No gold cap / overflow:hidden on these cards on purpose - they hold
+       horizontally scrolling tables that must not be clipped. */
     .card {
-      background: var(--card); border: 1px solid var(--line); border-radius: var(--radius);
-      padding: 20px; box-shadow: var(--shadow-sm);
+      background: var(--card); border: 1px solid var(--line); border-radius: var(--radius-lg);
+      padding: 22px; box-shadow: var(--shadow-md);
     }
     h2 {
-      font-size: 15px; text-transform: uppercase; letter-spacing: 0.04em;
-      color: var(--gray); margin: 0 0 4px;
+      font-family: var(--font-display); font-weight: 600; font-size: 20px;
+      letter-spacing: -0.01em; text-transform: none; color: var(--navy); margin: 0 0 4px;
     }
     .section-note { margin: 0 0 16px; font-size: 13px; color: var(--gray); }
 
@@ -78,22 +167,35 @@
       grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
     }
     .tile {
-      background: var(--card); border: 1px solid var(--line); border-radius: var(--radius);
-      padding: 16px 18px; box-shadow: var(--shadow-sm);
+      position: relative; overflow: hidden;
+      background: var(--card); border: 1px solid var(--line); border-radius: var(--radius-lg);
+      padding: 18px 20px; box-shadow: var(--shadow-md);
       animation: pv-fade-up var(--dur) var(--ease) both;
-      transition: box-shadow var(--dur-fast) var(--ease), transform var(--dur-fast) var(--ease);
+      transition: box-shadow var(--dur-fast) var(--ease), transform var(--dur-fast) var(--ease),
+                  border-color var(--dur-fast) var(--ease);
     }
-    .tile:hover { box-shadow: var(--shadow-lift); transform: translateY(-1px); }
+    .tile:hover { box-shadow: var(--shadow-lift); transform: translateY(-3px); border-color: var(--line-hover); }
     .tile:nth-child(2) { animation-delay: 0.05s; }
     .tile:nth-child(3) { animation-delay: 0.1s; }
     .tile:nth-child(4) { animation-delay: 0.15s; }
     .tile .label {
-      font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em;
-      color: var(--gray); font-weight: 600;
+      font-size: 11px; text-transform: uppercase; letter-spacing: 0.09em;
+      color: var(--gray); font-weight: 700;
     }
-    .tile .value { font-size: 28px; font-weight: 700; color: var(--navy); margin-top: 2px; }
-    .tile .value.small { font-size: 20px; }
+    .tile .value {
+      font-family: var(--font-display); font-size: 34px; font-weight: 600;
+      letter-spacing: -0.02em; color: var(--navy); margin-top: 3px;
+      font-variant-numeric: tabular-nums; line-height: 1.1;
+    }
+    .tile .value.small { font-size: 23px; }
+    /* The winning-style tile is the one number that matters most - give it the
+       gold cap as well as the tint, so it reads as the headline of the row. */
     .tile.highlight { border-color: var(--gold); background: var(--gold-tint); }
+    .tile.highlight::before {
+      content: ""; position: absolute; top: 0; left: 0; right: 0; height: 3px;
+      background: linear-gradient(90deg, var(--gold) 0%, var(--gold) 30%,
+                  rgba(212, 175, 55, 0.32) 72%, rgba(212, 175, 55, 0.08) 100%);
+    }
 
     /* Style table */
     .table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }

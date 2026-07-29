@@ -116,6 +116,19 @@ def get_clicks(tracking_id: str) -> int:
         return _load().get(tracking_id, 0)
 
 
+def total_clicks() -> int:
+    """
+    Every recorded click across every tracking link, summed.
+
+    An aggregate only - it deliberately returns a single number and never the
+    per-id breakdown, because its caller is the public landing page. Same
+    tolerance as the rest of this module: a missing or unreadable counts file
+    reads as 0 rather than raising.
+    """
+    with _lock:
+        return sum(_load().values())
+
+
 def _load_links() -> dict[str, str]:
     """Load the facebook_post_id -> tracking_id map, tolerating a missing file."""
     try:

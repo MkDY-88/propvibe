@@ -243,3 +243,72 @@ def get_tracking_row_index(tracking_id: str) -> int | None:
         return None
     with _lock:
         return _load_tracking_listings().get(tracking_id)
+
+
+# Maps a tracking_id -> the pool photo filename the post was published with.
+# A sibling to TRACKING_LISTINGS_FILE rather than a widened row_index shape:
+# get_tracking_row_index() has existing callers that treat its return value
+# as a plain int, so this keeps that contract untouched. Lets the public
+# landing page (GET /listing-info) show the exact photo a lead's post used,
+# so the AI lighting/weather toggle there starts from the real photo instead
+# of a random one.
+TRACKING_PHOTOS_FILE = DATA_DIR / "tracking_photos.json"
+
+
+def _load_tracking_photos() -> dict[str, str]:
+    """Load the tracking_id -> photo_filename map, tolerating a missing/corrupt file."""
+    try:
+        with TRACKING_PHOTOS_FILE.open("r", encoding="utf-8") as handle:
+            data = json.load(handle)
+    except (OSError, ValueError):
+        return {}
+
+    if not isinstance(data, dict):
+        return {}
+    return {str(k): str(v) for k, v in data.items() if v is not None}
+
+
+def _save_tracking_photos(photos: dict[str, str]) -> None:
+    """Persist the tracking-photo map via a temp-file-then-rename."""
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    tmp = TRACKING_PHOTOS_FILE.with_name(TRACKING_PHOTOS_FILE.name + ".tmp")
+    with tmp.open("w", encoding="utf-8") as handle:
+        json.dump(photos, handle)
+    tmp.replace(TRACKING_PHOTOS_FILE)
+
+
+def save_tracking_photo(tracking_id: str, photo_filename: str) -> None:
+    """
+    Remember which pool photo a tracking_id was published with.
+
+    Called at publish time, right alongside save_tracking_listing(). Same
+    behaviour as its sibling: a blank id or filename is a no-op, and a
+    persistence failure is logged, not raised - publishing must never fail
+    because this bookkeeping file couldn't be written.
+    """
+    tracking_id = (tracking_id or "").strip()
+    photo_filename = (photo_filename or "").strip()
+    if not tracking_id or not photo_filename:
+        return
+
+    with _lock:
+        photos = _load_tracking_photos()
+        photos[tracking_id] = photo_filename
+        try:
+            _save_tracking_photos(photos)
+        except OSError as exc:
+            logger.warning(
+                "Could not persist tracking photo %r -> %r: %s",
+                tracking_id,
+                photo_filename,
+                exc,
+            )
+
+
+def get_tracking_photo(tracking_id: str) -> str | None:
+    """Return the photo_filename recorded for a tracking_id, or None."""
+    tracking_id = (tracking_id or "").strip()
+    if not tracking_id:
+        return None
+    with _lock:
+        return _load_tracking_photos().get(tracking_id)

@@ -51,6 +51,13 @@
       border: 1px solid #f0d78c; border-radius: 6px; color: #8a6116; font-size: 13px;
     }
     #poster { width: 100%; border-radius: 8px; border: 1px solid var(--line); display: block; margin-bottom: 16px; }
+    .toggle-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 8px 0 16px; }
+    .toggle-cell {
+      font-size: 12px; padding: 8px 4px; border: 1px solid var(--line); border-radius: 6px;
+      background: #eef1f6; color: var(--navy); cursor: pointer; text-transform: capitalize;
+    }
+    .toggle-cell.active { background: var(--navy); color: #fff; }
+    .toggle-cell:disabled { opacity: 0.55; cursor: not-allowed; }
     .caption-box {
       white-space: pre-wrap; font-size: 14px; padding: 12px 14px; background: #f6f7f9;
       border: 1px solid var(--line); border-radius: 6px; margin-bottom: 12px;
@@ -100,6 +107,19 @@
         <p class="listing-features" id="listing-features"></p>
 
         <img id="poster" alt="Generated poster" />
+
+        <label>Lighting &amp; weather</label>
+        <div class="toggle-grid" id="toggle-grid">
+          <button type="button" class="toggle-cell" data-time="morning" data-weather="sunny">Morning · Sunny</button>
+          <button type="button" class="toggle-cell" data-time="morning" data-weather="cloudy">Morning · Cloudy</button>
+          <button type="button" class="toggle-cell" data-time="morning" data-weather="rainy">Morning · Rainy</button>
+          <button type="button" class="toggle-cell" data-time="evening" data-weather="sunny">Evening · Sunny</button>
+          <button type="button" class="toggle-cell" data-time="evening" data-weather="cloudy">Evening · Cloudy</button>
+          <button type="button" class="toggle-cell" data-time="evening" data-weather="rainy">Evening · Rainy</button>
+          <button type="button" class="toggle-cell" data-time="night" data-weather="sunny">Night · Sunny</button>
+          <button type="button" class="toggle-cell" data-time="night" data-weather="cloudy">Night · Cloudy</button>
+          <button type="button" class="toggle-cell" data-time="night" data-weather="rainy">Night · Rainy</button>
+        </div>
 
         <label>Caption</label>
         <div id="caption" class="caption-box"></div>
@@ -161,6 +181,7 @@
     const editWarning = document.getElementById("edit-warning");
     const cancelBtn = document.getElementById("cancel-btn");
     const saveBtn = document.getElementById("save-btn");
+    const toggleGrid = document.getElementById("toggle-grid");
 
     // Everything /publish-post needs for the listing currently on screen, plus
     // the plain-text fields (price/address/features/photo_filename) an Edit
@@ -230,6 +251,10 @@
       };
 
       updateDisplayFields();
+
+      // A freshly-loaded candidate always starts on its untouched poster -
+      // no combo should read as selected.
+      toggleGrid.querySelectorAll(".toggle-cell").forEach((c) => c.classList.remove("active"));
 
       editPanel.classList.add("hidden");
       editWarning.classList.add("hidden");
@@ -343,6 +368,9 @@
             return; // Edit panel stays open, inputs untouched, nothing saved.
           }
           current.poster_base64 = payload.poster_base64;
+          // /regenerate-poster always restarts from the untouched pool
+          // photo, discarding any active AI lighting/weather edit.
+          toggleGrid.querySelectorAll(".toggle-cell").forEach((c) => c.classList.remove("active"));
         }
 
         current.caption = newCaption;
@@ -373,6 +401,52 @@
       }
     });
 
+    toggleGrid.addEventListener("click", async (event) => {
+      const btn = event.target.closest(".toggle-cell");
+      if (!btn || !current) return;
+      clearStatus();
+
+      const cells = [...toggleGrid.querySelectorAll(".toggle-cell")];
+      cells.forEach((c) => (c.disabled = true));
+      setButtonsDisabled(true);
+      const original = btn.textContent;
+      btn.textContent = "Generating…";
+
+      try {
+        const resp = await fetch("/toggle-photo-condition", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            photo_filename: current.photo_filename,
+            time_of_day: btn.dataset.time,
+            weather: btn.dataset.weather,
+            price: current.price,
+            location: current.address,
+            features: current.features,
+            style_tag: current.style_tag,
+          }),
+        });
+        const payload = await resp.json().catch(() => ({}));
+        if (!resp.ok) {
+          showStatus("error", payload.detail || `Toggling the photo failed (HTTP ${resp.status}).`);
+          return;
+        }
+
+        // Same mechanism as Save: mutate current.poster_base64 and repaint -
+        // Approve & Post reads current.poster_base64 fresh at click time, so
+        // this alone makes it publish whichever toggle is on screen.
+        current.poster_base64 = payload.poster_base64;
+        updateDisplayFields();
+        cells.forEach((c) => c.classList.toggle("active", c === btn));
+      } catch (err) {
+        showStatus("error", "Could not reach the server. Is the backend running?");
+      } finally {
+        btn.textContent = original;
+        cells.forEach((c) => (c.disabled = false));
+        setButtonsDisabled(false);
+      }
+    });
+
     approveBtn.addEventListener("click", async () => {
       if (!current) return;
       clearStatus();
@@ -391,6 +465,7 @@
             style_tag: current.style_tag,
             template_id: current.template_id,
             listing_row_index: current.row_index,
+            photo_filename: current.photo_filename,
           }),
         });
         const payload = await resp.json().catch(() => ({}));

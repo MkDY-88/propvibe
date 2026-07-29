@@ -51,16 +51,23 @@ DESIGN NOTES
 
 from __future__ import annotations
 
+import base64
+import io
 import logging
 import os
 import re
 from urllib.parse import quote
 
 import httpx
+from PIL import Image
 
 logger = logging.getLogger("propvibe.airtable")
 
 API_BASE = "https://api.airtable.com/v0"
+
+# Attachment uploads go through a separate host from the regular records API -
+# see save_cached_photo_condition().
+CONTENT_API_BASE = "https://content.airtable.com/v0"
 
 # Airtable calls are tiny JSON payloads; a short timeout keeps a hung request
 # from stalling the publish/sync flow for long.
@@ -145,6 +152,24 @@ def _leads_fields() -> dict[str, str]:
         "budget_signal": _env("AIRTABLE_FIELD_LEAD_BUDGET", "Budget Signal"),
         "timeline_signal": _env("AIRTABLE_FIELD_LEAD_TIMELINE", "Timeline Signal"),
         "transcript": _env("AIRTABLE_FIELD_LEAD_TRANSCRIPT", "Transcript"),
+    }
+
+
+def _photo_cache_table() -> str:
+    return _env("AIRTABLE_PHOTO_CACHE_TABLE", "Photo Condition Cache")
+
+
+# Photo Condition Cache table columns - one row per (photo, time_of_day,
+# weather) combo that has ever been generated. See app.photo_condition for
+# the fal.ai call this caches the result of, and main.py's
+# /toggle-photo-condition for how the cache is checked before ever spending
+# money on a new generation.
+def _photo_cache_fields() -> dict[str, str]:
+    return {
+        "photo_filename": _env("AIRTABLE_FIELD_PHOTO_FILENAME", "Photo Filename"),
+        "time_of_day": _env("AIRTABLE_FIELD_TIME_OF_DAY", "Time Of Day"),
+        "weather": _env("AIRTABLE_FIELD_WEATHER", "Weather"),
+        "edited_image": _env("AIRTABLE_FIELD_EDITED_IMAGE", "Edited Image"),
     }
 
 
@@ -801,6 +826,142 @@ def get_style_performance() -> dict[str, float]:
         for style, values in values_by_style.items()
         if values
     }
+
+
+def get_photo_condition_cache_entries(photo_filename: str) -> list[dict]:
+    """
+    Every cached (time_of_day, weather) edit already generated for this photo.
+
+    Returns a list of ``{"time_of_day": ..., "weather": ..., "attachment_url":
+    ... | None}``. A None attachment_url means the cache row exists (a record
+    was created) but the image was never successfully attached - most likely
+    a process crash between the two steps of save_cached_photo_condition().
+    Such a row still counts toward /toggle-photo-condition's 9-combo cap
+    (money was already spent on it) but is never treated as a usable cache
+    hit, so the combo can be regenerated.
+
+    One _list_records() call for the whole table, filtered client-side by
+    photo_filename - same pattern get_posts()/upsert_lead_record() already
+    use, and cheap at this table's realistic size (photo_pool_size * 9 rows,
+    ever).
+
+    Raises:
+        AirtableError: for missing credentials, a network error, or Airtable
+            rejecting the read. /toggle-photo-condition treats this as a
+            clean 502 - it must never fall through and call fal.ai without
+            having safely checked the cache first.
+    """
+    names = _photo_cache_fields()
+    records = _list_records(_photo_cache_table())
+
+    entries: list[dict] = []
+    for record in records:
+        fields = record.get("fields", {})
+        row_filename = _read_field(fields, names["photo_filename"], "filename")
+        if not isinstance(row_filename, str) or row_filename.strip() != photo_filename:
+            continue
+
+        time_of_day = _read_field(fields, names["time_of_day"], "time")
+        weather = _read_field(fields, names["weather"], "weather")
+
+        attachment_url = None
+        attachments = _read_field(fields, names["edited_image"], "image")
+        if isinstance(attachments, list) and attachments:
+            first = attachments[0]
+            if isinstance(first, dict) and isinstance(first.get("url"), str):
+                attachment_url = first["url"]
+
+        entries.append(
+            {
+                "time_of_day": str(time_of_day).strip() if time_of_day else None,
+                "weather": str(weather).strip() if weather else None,
+                "attachment_url": attachment_url,
+            }
+        )
+    return entries
+
+
+def save_cached_photo_condition(
+    photo_filename: str, time_of_day: str, weather: str, image_bytes: bytes
+) -> str:
+    """
+    Cache a freshly fal.ai-edited photo, keyed by (photo_filename,
+    time_of_day, weather), so it is never generated (and never billed)
+    again.
+
+    Airtable Attachment fields can't be written inline with the record's
+    other fields - it's a two-step process:
+      1. Create the row with the three key fields (reuses _create_record as-
+         is, including its typecast/auto-create-select and drop-rejected-
+         field-and-retry behaviour).
+      2. Upload the image bytes to that row's attachment field via
+         Airtable's separate content.airtable.com upload endpoint.
+
+    Args:
+        photo_filename: Bare filename from the demo photo pool.
+        time_of_day:    "morning" | "evening" | "night".
+        weather:        "sunny" | "cloudy" | "rainy".
+        image_bytes:    The edited image, straight from fal.ai.
+
+    Returns:
+        The new Airtable record id.
+
+    Raises:
+        AirtableError: if either step fails. A failure in step 2 (after step
+            1 already succeeded) leaves a cache row with no attachment - see
+            get_photo_condition_cache_entries() for how that's handled on
+            read. Callers should log this loudly: it means real money was
+            already spent on an edit that isn't usably cached.
+    """
+    api_key, base_id = _require_credentials()
+    names = _photo_cache_fields()
+
+    record_id = _create_record(
+        _photo_cache_table(),
+        {
+            names["photo_filename"]: photo_filename,
+            names["time_of_day"]: time_of_day,
+            names["weather"]: weather,
+        },
+    )
+
+    try:
+        image_format = Image.open(io.BytesIO(image_bytes)).format
+    except Exception:  # noqa: BLE001 - format sniffing is best-effort only
+        image_format = None
+    if image_format == "PNG":
+        content_type, extension = "image/png", "png"
+    else:
+        content_type, extension = "image/jpeg", "jpg"
+
+    upload_url = (
+        f"{CONTENT_API_BASE}/{base_id}/{quote(record_id)}/"
+        f"{quote(names['edited_image'])}/uploadAttachment"
+    )
+    try:
+        response = httpx.post(
+            upload_url,
+            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+            json={
+                "contentType": content_type,
+                "file": base64.b64encode(image_bytes).decode("ascii"),
+                "filename": f"{photo_filename}_{time_of_day}_{weather}.{extension}",
+            },
+            timeout=REQUEST_TIMEOUT_SECONDS,
+        )
+    except httpx.RequestError as exc:
+        raise AirtableError(
+            f"Created the cache record but could not reach Airtable to attach the "
+            f"image (network error): {exc}."
+        )
+
+    if not response.is_success:
+        raise AirtableError(
+            f"Created the cache record but Airtable rejected the image attachment: "
+            f"{_error_message(response)}"
+        )
+
+    return record_id
 
 
 # ---------------------------------------------------------------------------

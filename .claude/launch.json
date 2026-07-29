@@ -4,8 +4,8 @@
     {
       "name": "propvibe-local",
       "runtimeExecutable": "uvicorn",
-      "runtimeArgs": ["main:app", "--host", "127.0.0.1", "--port", "8000"],
-      "port": 8000
+      "runtimeArgs": ["main:app", "--host", "127.0.0.1", "--port", "39811"],
+      "port": 39811
     }
   ]
 }

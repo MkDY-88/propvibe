@@ -22,6 +22,11 @@ The public entry points:
         The listing at a given row index, for turning a published post's
         recorded row index back into the property's details.
 
+    search_listings(max_price=None, location_keyword=None,
+                    room_type_keyword=None, exclude_row_index=None, limit=4)
+        Listings matching some combination of price/area/room-type, for
+        suggesting real alternatives to a lead who asks what else is available.
+
     random_pool_photo() -> str
         A random file path from the demo photo pool.
 """
@@ -30,6 +35,7 @@ from __future__ import annotations
 
 import csv
 import random
+import re
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -51,6 +57,7 @@ class Listing:
     row_index: int  # zero-indexed among data rows; stable identifier
     condo_name: str
     price: str  # pre-formatted for display, e.g. "RM 1,000"
+    price_value: int | None  # same price as a plain int for comparison; None if unparseable
     address: str
     room_type: str
     bed_type: str
@@ -68,6 +75,25 @@ class Listing:
         if self.parking_rental:
             parts.append(f"parking {self.parking_rental}/month")
         return ", ".join(part for part in parts if part)
+
+
+def _parse_price(raw: str) -> int | None:
+    """
+    The numeric ringgit amount in a raw CSV price cell, or None.
+
+    The display string is built separately (and unchanged) from the same cell;
+    this is only for comparisons like "under RM 900". Blank cells, "N/A" and
+    anything else without a number give None, which every caller must treat as
+    "no price to compare" rather than as zero.
+    """
+    digits = re.sub(r"[^\d.]", "", raw or "")
+    if not digits:
+        return None
+    try:
+        return int(float(digits))
+    except ValueError:
+        # e.g. a cell containing several dots - not a number we can trust.
+        return None
 
 
 def _clean_parking(raw: str) -> str | None:
@@ -101,6 +127,7 @@ def load_listings() -> list[Listing]:
                     row_index=row_index,
                     condo_name=condo_name,
                     price=f"RM {price_raw}" if price_raw else "Price on request",
+                    price_value=_parse_price(price_raw),
                     address=(row.get("Address") or "").strip(),
                     room_type=(row.get("Room Type") or "").strip(),
                     bed_type=(row.get("Bed Type") or "").strip(),
@@ -143,6 +170,66 @@ def get_listing(row_index: int) -> Listing | None:
         if listing.row_index == row_index:
             return listing
     return None
+
+
+def search_listings(
+    max_price: int | None = None,
+    location_keyword: str | None = None,
+    room_type_keyword: str | None = None,
+    exclude_row_index: int | None = None,
+    limit: int = 4,
+) -> list[Listing]:
+    """
+    Up to `limit` listings matching every filter given, in CSV order.
+
+    Every filter is optional and they combine with AND:
+
+        max_price          price_value <= max_price. A listing with no
+                           price_value can't be compared, so it is skipped
+                           rather than optimistically included.
+        location_keyword   case-insensitive substring of the address.
+        room_type_keyword  case-insensitive substring of EITHER room_type or
+                           bed_type - a lead saying "queen" or "master" means
+                           the same kind of thing to them, not two columns.
+
+    `exclude_row_index` always drops that one row, filters or not: it is the
+    property the lead is already looking at, and offering it back to them as an
+    "alternative" would read as a bug. With no filters at all we return the
+    first `limit` listings instead of nothing, so a caller that could not pull
+    any criteria out of the conversation still gets a usable sample to offer.
+    """
+    if limit <= 0:
+        return []
+
+    # Blank strings arrive from callers that pass a model's "" through as-is;
+    # treat them as "no filter" rather than as a substring that matches all.
+    location = (location_keyword or "").strip().lower()
+    room_type = (room_type_keyword or "").strip().lower()
+    has_filters = max_price is not None or bool(location) or bool(room_type)
+
+    matches: list[Listing] = []
+    for listing in load_listings():
+        if exclude_row_index is not None and listing.row_index == exclude_row_index:
+            continue
+
+        if has_filters:
+            if max_price is not None and (
+                listing.price_value is None or listing.price_value > max_price
+            ):
+                continue
+            if location and location not in listing.address.lower():
+                continue
+            if room_type and not (
+                room_type in listing.room_type.lower()
+                or room_type in listing.bed_type.lower()
+            ):
+                continue
+
+        matches.append(listing)
+        if len(matches) >= limit:
+            break
+
+    return matches
 
 
 def random_pool_photo() -> str:

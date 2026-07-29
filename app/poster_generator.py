@@ -566,22 +566,22 @@ def _draw_text_block(
     canvas: Image.Image,
     price: str,
     location: str,
-    bedrooms: int,
-    bathrooms: int,
+    details: str,
     palette: dict,
 ) -> None:
     """
-    Draw price / location / bed-bath, stacked in the bottom-left corner.
+    Draw price / location / details, stacked in the bottom-left corner.
 
     We measure the whole block first and work out where the TOP line starts, so
     the bottom line always lands exactly MARGIN_BOTTOM px above the edge no
     matter how tall the individual lines turn out to be.
+
+    `details` is the pre-formatted third line (e.g. "3 Bed · 2 Bath", or a
+    room-rental listing's "Master, Queen bed, Private bathroom") - callers
+    decide its wording; this function just lays it out.
     """
     draw = ImageDraw.Draw(canvas)
     max_width = CANVAS_SIZE - (MARGIN_X * 2)
-
-    # "3 Bed - 2 Bath", using a middle dot separator.
-    details = f"{bedrooms} Bed · {bathrooms} Bath"
 
     # (text, font, colour, gap below this line). _font_for keeps Poppins for
     # Latin text and swaps in a system font only for a line Poppins can't render
@@ -625,6 +625,7 @@ def generate_poster(
     bathrooms: int,
     output_path: str,
     style_tag: str | None = None,
+    details: str | None = None,
 ) -> str:
     """
     Generate a 1080x1080 property poster and save it as a PNG.
@@ -635,14 +636,20 @@ def generate_poster(
                      3+ photos  -> Template B (grid + band).
         price:       Pre-formatted price string, e.g. "RM 450,000".
         location:    Short location line, e.g. "Mont Kiara, Kuala Lumpur".
-        bedrooms:    Number of bedrooms.
-        bathrooms:   Number of bathrooms.
+        bedrooms:    Number of bedrooms. Ignored if `details` is given.
+        bathrooms:   Number of bathrooms. Ignored if `details` is given.
         output_path: Where to write the PNG. Parent folders are created.
         style_tag:   Optional caption style ("Modern"/"Warm"/"Bold", see
             app.copy_generator.STYLE_TAGS) selecting the poster's colour
             palette via STYLE_PALETTES. None or an unrecognised style falls
             back to DEFAULT_PALETTE (the original navy/gold look) - callers
             that don't care about style keep their exact existing appearance.
+        details:     Optional pre-formatted third line, overriding the default
+            "{bedrooms} Bed · {bathrooms} Bath". For listing shapes that don't
+            have bedroom/bathroom counts (e.g. a single room-rental listing),
+            pass e.g. "Master, Queen bed, Private bathroom" instead. None (the
+            default) keeps the original "X Bed · Y Bath" line, so existing
+            callers are unaffected.
 
     Returns:
         The output_path that was written (same string you passed in).
@@ -666,7 +673,8 @@ def generate_poster(
         _build_template_b(canvas, photos, palette)
 
     # ---- Shared text overlay --------------------------------------------
-    _draw_text_block(canvas, price, location, bedrooms, bathrooms, palette)
+    details_line = details if details is not None else f"{bedrooms} Bed · {bathrooms} Bath"
+    _draw_text_block(canvas, price, location, details_line, palette)
 
     # ---- Save -----------------------------------------------------------
     destination = Path(output_path)

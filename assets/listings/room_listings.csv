@@ -1,0 +1,178 @@
+Condo Name,Price (RM),Address,Room Type,Bed Type,Bathroom Type,Parking Rental (RM)
+The Birch,1000,"35, Jalan Kasipillay, Jalan Ipoh, 51200 Kuala Lumpur, Wilayah Persekutuan Kuala Lumpur",Master,Queen,Private,100
+The Birch,750,"35, Jalan Kasipillay, Jalan Ipoh, 51200 Kuala Lumpur, Wilayah Persekutuan Kuala Lumpur",Medium,Queen,Shared,100
+The Birch,500,"35, Jalan Kasipillay, Jalan Ipoh, 51200 Kuala Lumpur, Wilayah Persekutuan Kuala Lumpur",Single,Single,Shared,100
+The Birch,600,"35, Jalan Kasipillay, Jalan Ipoh, 51200 Kuala Lumpur, Wilayah Persekutuan Kuala Lumpur",Balcony,Single,Shared,100
+M Vertica,1100,"Residensi M Vertica, 555, Jln Cheras, Taman Pertama, 56000 Kuala Lumpur, Federal Territory of Kuala Lumpur",Master,Queen,Private,120
+M Vertica,800,"Residensi M Vertica, 555, Jln Cheras, Taman Pertama, 56000 Kuala Lumpur, Federal Territory of Kuala Lumpur",Medium With Big Window,Queen,Shared,120
+M Vertica,800,"Residensi M Vertica, 555, Jln Cheras, Taman Pertama, 56000 Kuala Lumpur, Federal Territory of Kuala Lumpur",Medium,Queen,Shared,120
+M Vertica,700,"Residensi M Vertica, 555, Jln Cheras, Taman Pertama, 56000 Kuala Lumpur, Federal Territory of Kuala Lumpur",Single,Single,Shared,120
+PV 9 Residence,1100,"Kampung Wira Jaya, 53100 Kuala Lumpur, Federal Territory of Kuala Lumpur",Master,Queen,Private,
+PV 9 Residence,850,"Kampung Wira Jaya, 53100 Kuala Lumpur, Federal Territory of Kuala Lumpur",Medium,Queen,Shared,
+Razak City Residences,850,"2, Jln Sungai Besi, Sungai Besi, 57100 Kuala Lumpur, Wilayah Persekutuan Kuala Lumpur",Master,Queen,Private,100
+Razak City Residences,750,"2, Jln Sungai Besi, Sungai Besi, 57100 Kuala Lumpur, Wilayah Persekutuan Kuala Lumpur",Balcony,Queen,Shared,100
+Razak City Residences,650,"2, Jln Sungai Besi, Sungai Besi, 57100 Kuala Lumpur, Wilayah Persekutuan Kuala Lumpur",Medium,Queen,Shared,100
+Neu Suites,1300,"Kampung Berembang, 55000 Kuala Lumpur, Federal Territory of Kuala Lumpur",Studio,Queen,Private,100
+Neu Suites,1100,"Kampung Berembang, 55000 Kuala Lumpur, Federal Territory of Kuala Lumpur",Single,Single,Private,100
+Arte Cheras,1100,"Jln Cheras, Taman Midah, 56000 Cheras, Wilayah Persekutuan Kuala Lumpur",Master,Queen,Private,150
+Arte Cheras,800,"Jln Cheras, Taman Midah, 56000 Cheras, Wilayah Persekutuan Kuala Lumpur",Partitioned,Queen,Shared,150
+Arte Cheras,800,"Jln Cheras, Taman Midah, 56000 Cheras, Wilayah Persekutuan Kuala Lumpur",Medium,Queen,Shared,150
+Arte Cheras,700,"Jln Cheras, Taman Midah, 56000 Cheras, Wilayah Persekutuan Kuala Lumpur",Partitioned,Single,Shared,150
+Arte Cheras,700,"Jln Cheras, Taman Midah, 56000 Cheras, Wilayah Persekutuan Kuala Lumpur",Single,Single,Shared,150
+Arte Cheras,500,"Jln Cheras, Taman Midah, 56000 Cheras, Wilayah Persekutuan Kuala Lumpur",Mini single,Single,Shared,150
+Sunway Serene,1200,"Jalan SS 8/2, Ss 7, 47300 Petaling Jaya, Selangor",Master,Queen,Private,150
+Sunway Serene,800,"Jalan SS 8/2, Ss 7, 47300 Petaling Jaya, Selangor",Partitioned,Queen,Shared,150
+Sunway Serene,800,"Jalan SS 8/2, Ss 7, 47300 Petaling Jaya, Selangor",Medium,Queen,Shared,150
+Sunway Serene,850,"Jalan SS 8/2, Ss 7, 47300 Petaling Jaya, Selangor",Medium,Queen,Shared,150
+Trion KL,1300,"Jalan Dua, Chan Sow Lin, 55200 Kuala Lumpur, Wilayah Persekutuan Kuala Lumpur",Studio,Queen,Private,150
+Trion KL,1100,"Jalan Dua, Chan Sow Lin, 55200 Kuala Lumpur, Wilayah Persekutuan Kuala Lumpur",Master,Queen,Private,150
+Trion KL,900,"Jalan Dua, Chan Sow Lin, 55200 Kuala Lumpur, Wilayah Persekutuan Kuala Lumpur",Medium,Queen,Shared,150
+Trion KL,900,"Jalan Dua, Chan Sow Lin, 55200 Kuala Lumpur, Wilayah Persekutuan Kuala Lumpur",Balcony,Queen,Shared,150
+Trion KL,650,"Jalan Dua, Chan Sow Lin, 55200 Kuala Lumpur, Wilayah Persekutuan Kuala Lumpur",Single,Single,Shared,150
+Majestic Maxim,650,"45, Jalan 9, Taman Bukit Cheras, 56000 Cheras, Wilayah Persekutuan Kuala Lumpur",Single,Single,Shared,100
+Majestic Maxim,950,"45, Jalan 9, Taman Bukit Cheras, 56000 Cheras, Wilayah Persekutuan Kuala Lumpur",Master,Queen,Private,100
+Majestic Maxim,700,"45, Jalan 9, Taman Bukit Cheras, 56000 Cheras, Wilayah Persekutuan Kuala Lumpur",Medium,Queen,Shared,100
+Majestic Maxim,700,"45, Jalan 9, Taman Bukit Cheras, 56000 Cheras, Wilayah Persekutuan Kuala Lumpur",Balcony,Single,Shared,100
+Majestic Maxim,700,"45, Jalan 9, Taman Bukit Cheras, 56000 Cheras, Wilayah Persekutuan Kuala Lumpur",Medium With Big Window,Queen,Shared,100
+Majestic Maxim,950,"45, Jalan 9, Taman Bukit Cheras, 56000 Cheras, Wilayah Persekutuan Kuala Lumpur",Master With Big Window,Queen,Private,100
+Majestic Maxim,700,"45, Jalan 9, Taman Bukit Cheras, 56000 Cheras, Wilayah Persekutuan Kuala Lumpur",Single,Single,Shared,100
+M Adora,1500,"Jalan Wangsa Melawati 1 Taman Wangsa Melawati, Wangsa Melawati, 53300 Kuala Lumpur",Studio,Queen,Private,120
+M Adora,1100,"Jalan Wangsa Melawati 1 Taman Wangsa Melawati, Wangsa Melawati, 53300 Kuala Lumpur",Master,Queen,Private,120
+M Adora,900,"Jalan Wangsa Melawati 1 Taman Wangsa Melawati, Wangsa Melawati, 53300 Kuala Lumpur",Balcony,Queen,Shared,120
+M Adora,850,"Jalan Wangsa Melawati 1 Taman Wangsa Melawati, Wangsa Melawati, 53300 Kuala Lumpur",Medium,Queen,Shared,120
+M Adora,700,"Jalan Wangsa Melawati 1 Taman Wangsa Melawati, Wangsa Melawati, 53300 Kuala Lumpur",Single,Single,Shared,120
+Aster Residence,700,"2A, Jalan Cheras Hartamas, 56100 Cheras, Wilayah Persekutuan Kuala Lumpur",Single,Single,Shared,100
+Aster Residence,800,"2A, Jalan Cheras Hartamas, 56100 Cheras, Wilayah Persekutuan Kuala Lumpur",Medium,Queen,Shared,100
+Aster Residence,1100,"2A, Jalan Cheras Hartamas, 56100 Cheras, Wilayah Persekutuan Kuala Lumpur",Master,Queen,Private,100
+The Glenz,1350,"6, Jalan Juruanalisis U1/35, Hicom-glenmarie Industrial Park, 40150 Shah Alam, Selangor",Master,Queen,Private,100
+The Glenz,1100,"6, Jalan Juruanalisis U1/35, Hicom-glenmarie Industrial Park, 40150 Shah Alam, Selangor",Balcony,Queen,Shared,100
+The Glenz,950,"6, Jalan Juruanalisis U1/35, Hicom-glenmarie Industrial Park, 40150 Shah Alam, Selangor",Medium,Queen,Shared,100
+Acacia Residence,800,"Jln Salak Perdana, Bandar Baru Salak Tinggi, 43900 Sepang, Selangor",Master,Queen,Private,100
+Acacia Residence,700,"Jln Salak Perdana, Bandar Baru Salak Tinggi, 43900 Sepang, Selangor",Medium With Big Window,Queen,Shared,100
+Acacia Residence,650,"Jln Salak Perdana, Bandar Baru Salak Tinggi, 43900 Sepang, Selangor",Medium,Queen,Shared,100
+Acacia Residence,550,"Jln Salak Perdana, Bandar Baru Salak Tinggi, 43900 Sepang, Selangor",Single,Single,Shared,100
+The Andes,1300,"Bukit Jalil, Jalan Mas 3, Kuala Lumpur, Kuala Lumpur, 58200, Malaysia",Studio,Queen,Private,100
+The Andes,900,"Bukit Jalil, Jalan Mas 3, Kuala Lumpur, Kuala Lumpur, 58200, Malaysia",Master,Queen,Private,100
+The Andes,800,"Bukit Jalil, Jalan Mas 3, Kuala Lumpur, Kuala Lumpur, 58200, Malaysia",Medium With Big Window,Queen,Shared,100
+The Andes,750,"Bukit Jalil, Jalan Mas 3, Kuala Lumpur, Kuala Lumpur, 58200, Malaysia",Medium,Queen,Shared,100
+The Andes,600,"Bukit Jalil, Jalan Mas 3, Kuala Lumpur, Kuala Lumpur, 58200, Malaysia",Single,Single,Shared,100
+Inwood Residence,1100,"6, Jln Pantai Murni 7, Bukit Kerinchi, 59200 Kuala Lumpur, Wilayah Persekutuan Kuala Lumpur",Master,Queen,Private,150
+Inwood Residence,800,"6, Jln Pantai Murni 7, Bukit Kerinchi, 59200 Kuala Lumpur, Wilayah Persekutuan Kuala Lumpur",Single,Single,Shared,150
+The PARC3,1100,"Jalan Pudu Perdana, Taman Pertama, Kuala Lumpur, Kuala Lumpur, 56100, Malaysia",Master,Queen,Private,150
+The PARC3,800,"Jalan Pudu Perdana, Taman Pertama, Kuala Lumpur, Kuala Lumpur, 56100, Malaysia",Medium,Queen,Shared,150
+The PARC3,700,"Jalan Pudu Perdana, Taman Pertama, Kuala Lumpur, Kuala Lumpur, 56100, Malaysia",Single,Single,Shared,150
+Secoya Residence,1100,"Pant Jln Pantai Murni 7, Bukit Kerinchi, 59200 Kuala Lumpur, Wilayah Persekutuan Kuala Lumpur",Master,Queen,Private,150
+Secoya Residence,750,"Pant Jln Pantai Murni 7, Bukit Kerinchi, 59200 Kuala Lumpur, Wilayah Persekutuan Kuala Lumpur",Single Bedroom With Big Window,Single,Shared,150
+Secoya Residence,700,"Pant Jln Pantai Murni 7, Bukit Kerinchi, 59200 Kuala Lumpur, Wilayah Persekutuan Kuala Lumpur",Single,Single,Shared,150
+Rica Residence,1100,"Jalan Perhentian, Sentul, Kuala Lumpur, 51100, Malaysia",Master,Queen,Private,100
+Rica Residence,800,"Jalan Perhentian, Sentul, Kuala Lumpur, 51100, Malaysia",Medium,Queen,Shared,100
+Rica Residence,700,"Jalan Perhentian, Sentul, Kuala Lumpur, 51100, Malaysia",Single,Single,Shared,100
+Rica Residence,650,"Jalan Perhentian, Sentul, Kuala Lumpur, 51100, Malaysia",2nd Single Bedroom,Single,Shared,100
+Platinum Splendor,900,"Jalan Lestari, Kampung Padang Tembak, Kuala Lumpur, Kuala Lumpur, 54000, Malaysia",Master,Queen,Private,100
+Platinum Splendor,700,"Jalan Lestari, Kampung Padang Tembak, Kuala Lumpur, Kuala Lumpur, 54000, Malaysia",Balcony,Single,Shared,100
+Platinum Splendor,600,"Jalan Lestari, Kampung Padang Tembak, Kuala Lumpur, Kuala Lumpur, 54000, Malaysia",Single,Single,Shared,100
+Platinum Splendor,400,"Jalan Lestari, Kampung Padang Tembak, Kuala Lumpur, Kuala Lumpur, 54000, Malaysia",Mini single,Single,Shared,100
+Astoria Ampang,900,"Jalan Ampang Kiri, Off, Jln Ampang, 55000 Kuala Lumpur, Kuala Lumpur, 55000, Malaysia",Medium,Queen,Shared,100
+Astoria Ampang,800,"Jalan Ampang Kiri, Off, Jln Ampang, 55000 Kuala Lumpur, Kuala Lumpur, 55000, Malaysia",Single,Single,Shared,100
+Astoria Ampang,700,"Jalan Ampang Kiri, Off, Jln Ampang, 55000 Kuala Lumpur, Kuala Lumpur, 55000, Malaysia",2nd Single Bedroom,Single,Shared,100
+Astoria Ampang,750,"Jalan Ampang Kiri, Off, Jln Ampang, 55000 Kuala Lumpur, Kuala Lumpur, 55000, Malaysia",Balcony,Single,Shared,100
+Astoria Ampang,650,"Jalan Ampang Kiri, Off, Jln Ampang, 55000 Kuala Lumpur, Kuala Lumpur, 55000, Malaysia",Mini single,Single,Shared,100
+The OOAK,2200,"Kiara 163, Jalan Kiara 4, Mont Kiara, Kuala Lumpur, Kuala Lumpur, 50480, Malaysia",Studio,Queen,Private,200
+The OOAK,1100,"Kiara 163, Jalan Kiara 4, Mont Kiara, Kuala Lumpur, Kuala Lumpur, 50480, Malaysia",Master,Queen,Private,200
+The OOAK,900,"Kiara 163, Jalan Kiara 4, Mont Kiara, Kuala Lumpur, Kuala Lumpur, 50480, Malaysia",Balcony,Queen,Shared,200
+The OOAK,800,"Kiara 163, Jalan Kiara 4, Mont Kiara, Kuala Lumpur, Kuala Lumpur, 50480, Malaysia",Medium,Queen,Shared,200
+Unio Residence,1100,"Kepong, Jalan Kepong, Kepong, Kuala Lumpur, Kuala Lumpur, 52000, Malaysia",Master,Queen,Private,100
+Unio Residence,850,"Kepong, Jalan Kepong, Kepong, Kuala Lumpur, Kuala Lumpur, 52000, Malaysia",Balcony,Queen,Shared,100
+Unio Residence,700,"Kepong, Jalan Kepong, Kepong, Kuala Lumpur, Kuala Lumpur, 52000, Malaysia",Single,Single,Shared,100
+Unio Residence,650,"Kepong, Jalan Kepong, Kepong, Kuala Lumpur, Kuala Lumpur, 52000, Malaysia",Mini single,Single,Shared,100
+7 Tree Seven,800,"Jalan Cuepacs 3, Taman Koperasi Cuepacs, Kajang, Selangor, Kajang, 43000, selangor, Malaysia",Master,Queen,Private,100
+7 Tree Seven,600,"Jalan Cuepacs 3, Taman Koperasi Cuepacs, Kajang, Selangor, Kajang, 43000, selangor, Malaysia",Single,Single,Shared,100
+7 Tree Seven,650,"Jalan Cuepacs 3, Taman Koperasi Cuepacs, Kajang, Selangor, Kajang, 43000, selangor, Malaysia",2nd Single Bedroom,Single,Shared,100
+AraTre Residence,1100,"Jalan PJU 1a/46, Pusat Perdagangan Dana 1, Petaling Jaya, 47301, selangor, Malaysia",Master,Queen,Private,100
+AraTre Residence,800,"Jalan PJU 1a/46, Pusat Perdagangan Dana 1, Petaling Jaya, 47301, selangor, Malaysia",Medium,Queen,Shared,100
+AraTre Residence,750,"Jalan PJU 1a/46, Pusat Perdagangan Dana 1, Petaling Jaya, 47301, selangor, Malaysia",Single,Single,Shared,100
+AraTre Residence,700,"Jalan PJU 1a/46, Pusat Perdagangan Dana 1, Petaling Jaya, 47301, selangor, Malaysia",2nd Single Bedroom,Single,Shared,100
+AraTre Residence,800,"Jalan PJU 1a/46, Pusat Perdagangan Dana 1, Petaling Jaya, 47301, selangor, Malaysia",Partitioned,Queen,Shared,100
+Armani SOHO,850,"Jalan TP 3, Taman Perindustrian UEP, Subang Jaya, Selangor, Subang Jaya, 47500, selangor, Malaysia",Single balcony,Single,Shared,100
+Armani SOHO,700,"Jalan TP 3, Taman Perindustrian UEP, Subang Jaya, Selangor, Subang Jaya, 47500, selangor, Malaysia",Single,Single,Shared,100
+Armani SOHO,700,"Jalan TP 3, Taman Perindustrian UEP, Subang Jaya, Selangor, Subang Jaya, 47500, selangor, Malaysia",2nd Single Bedroom,Single,Shared,100
+Emporis Kota Damansara,1300,"Persiaran Surian, Kota Damansara, Petaling Jaya, Petaling Jaya, 47810, selangor, Malaysia",Studio,Queen,Private,100
+Emporis Kota Damansara,850,"Persiaran Surian, Kota Damansara, Petaling Jaya, Petaling Jaya, 47810, selangor, Malaysia",Balcony,Queen,Shared,100
+Emporis Kota Damansara,700,"Persiaran Surian, Kota Damansara, Petaling Jaya, Petaling Jaya, 47810, selangor, Malaysia",Single,Single,Shared,100
+Highpark Suites,1700,"Jalan SS 6/7, Ss 6, Petaling Jaya, Petaling Jaya, 47301, selangor, Malaysia",Studio 1,Queen,Private,100
+Highpark Suites,1700,"Jalan SS 6/7, Ss 6, Petaling Jaya, Petaling Jaya, 47301, selangor, Malaysia",Studio 2,Queen,Private,100
+Highpark Suites,1000,"Jalan SS 6/7, Ss 6, Petaling Jaya, Petaling Jaya, 47301, selangor, Malaysia",Medium,Queen,Shared,100
+Icon City,1100,"2, Jalan SS 8/2, Ss 8 Sungai Way Free Trade Zone, Petaling Jaya, 47300, selangor, Malaysia",Studio,Queen,Private,N/A
+Icon City,850,"2, Jalan SS 8/2, Ss 8 Sungai Way Free Trade Zone, Petaling Jaya, 47300, selangor, Malaysia",Single,Single,Shared,N/A
+Icon City,700,"2, Jalan SS 8/2, Ss 8 Sungai Way Free Trade Zone, Petaling Jaya, 47300, selangor, Malaysia",Mini single,Single,Shared,N/A
+Pinnacle,1100,"Jalan SS 7/26, SS7, Petaling Jaya, Petaling Jaya, 57000, selangor, Malaysia",Master,Queen,Private,100
+Pinnacle,950,"Jalan SS 7/26, SS7, Petaling Jaya, Petaling Jaya, 57000, selangor, Malaysia",Single,Single,Private,100
+Pinnacle,800,"Jalan SS 7/26, SS7, Petaling Jaya, Petaling Jaya, 57000, selangor, Malaysia",Medium,Queen,Shared,100
+Pinnacle,700,"Jalan SS 7/26, SS7, Petaling Jaya, Petaling Jaya, 57000, selangor, Malaysia",Single,Single,Shared,100
+Sapphire Paradigm,1100,"Jalan SS 7/26a, SS7, Petaling Jaya, Petaling Jaya, 47301, selangor, Malaysia",Master,Queen,Shared,100
+Sapphire Paradigm,850,"Jalan SS 7/26a, SS7, Petaling Jaya, Petaling Jaya, 47301, selangor, Malaysia",Medium With Big Window,Queen,Shared,100
+Sapphire Paradigm,800,"Jalan SS 7/26a, SS7, Petaling Jaya, Petaling Jaya, 47301, selangor, Malaysia",Medium,Queen,Shared,100
+Sapphire Paradigm,700,"Jalan SS 7/26a, SS7, Petaling Jaya, Petaling Jaya, 47301, selangor, Malaysia",Single,Single,Shared,100
+Sfera Residency,950,"5, Jln Atmosphere Utama 1, 43300 Seri Kembangan, Seri Kembangan, 43300, selangor, Malaysia",Master,Queen,Private,100
+Sfera Residency,750,"5, Jln Atmosphere Utama 1, 43300 Seri Kembangan, Seri Kembangan, 43300, selangor, Malaysia",Medium,Queen,Shared,100
+Sfera Residency,650,"5, Jln Atmosphere Utama 1, 43300 Seri Kembangan, Seri Kembangan, 43300, selangor, Malaysia",Single,Single,Shared,100
+The Azure,1100,"SS7, Petaling Jaya, Petaling Jaya, 47301, selangor, Malaysia",Master,Queen,Shared,100
+The Azure,900,"SS7, Petaling Jaya, Petaling Jaya, 47301, selangor, Malaysia",Balcony,Queen,Shared,100
+The Azure,800,"SS7, Petaling Jaya, Petaling Jaya, 47301, selangor, Malaysia",Medium,Queen,Shared,100
+The Azure,700,"SS7, Petaling Jaya, Petaling Jaya, 47301, selangor, Malaysia",Single,Single,Shared,100
+D'Cosmos,1000,"Jalan PJU 8/8, Damansara Perdana, 47820 Petaling Jaya, Selangor",Master,Queen,Private,130
+D'Cosmos,950,"Jalan PJU 8/8, Damansara Perdana, 47820 Petaling Jaya, Selangor",Medium,Queen,Shared,130
+D'Cosmos,750,"Jalan PJU 8/8, Damansara Perdana, 47820 Petaling Jaya, Selangor",Single,Single,Shared,130
+Meta City,1200,"Jln Atmosphere Utama 2, 43400 Seri Kembangan, Selangor",Studio,Queen,Private,100
+Meta City,850,"Jln Atmosphere Utama 2, 43400 Seri Kembangan, Selangor",Master,Queen,Private,100
+Meta City,750,"Jln Atmosphere Utama 2, 43400 Seri Kembangan, Selangor",Medium,Queen,Shared,100
+Meta City,600,"Jln Atmosphere Utama 2, 43400 Seri Kembangan, Selangor",Single Private,Single,Private,100
+Meta City,550,"Jln Atmosphere Utama 2, 43400 Seri Kembangan, Selangor",Single,Single,Shared,100
+Vista Sentul,1100,"6, Jalan 1/48g, Sentul, 51100 Kuala Lumpur, Wilayah Persekutuan Kuala Lumpur",Master,Queen,Private,150
+Vista Sentul,850,"6, Jalan 1/48g, Sentul, 51100 Kuala Lumpur, Wilayah Persekutuan Kuala Lumpur",Medium,Queen,Shared,150
+Vista Sentul,700,"6, Jalan 1/48g, Sentul, 51100 Kuala Lumpur, Wilayah Persekutuan Kuala Lumpur",Single,Single,Shared,150
+Perla @ Ara Sentral,1100,"Jalan PJU 1a/44, Ara Damansara, 47301 Petaling Jaya, Selangor",Master,Queen,Private,130
+Perla @ Ara Sentral,900,"Jalan PJU 1a/44, Ara Damansara, 47301 Petaling Jaya, Selangor",Medium,Queen,Shared,130
+Perla @ Ara Sentral,800,"Jalan PJU 1a/44, Ara Damansara, 47301 Petaling Jaya, Selangor",Single,Single,Shared,130
+One Cochrane,1100,"1, Jalan Cochrane, Maluri, 55100 Kuala Lumpur, Wilayah Persekutuan Kuala Lumpur",Master,Queen,Private,150
+One Cochrane,850,"1, Jalan Cochrane, Maluri, 55100 Kuala Lumpur, Wilayah Persekutuan Kuala Lumpur",Medium,Queen,Shared,150
+One Cochrane,700,"1, Jalan Cochrane, Maluri, 55100 Kuala Lumpur, Wilayah Persekutuan Kuala Lumpur",Single,Single,Shared,150
+Duta Park,1100,"51200 Kuala Lumpur, Federal Territory of Kuala Lumpur",Master,Queen,Private,130
+Duta Park,850,"51200 Kuala Lumpur, Federal Territory of Kuala Lumpur",Medium With Big Window,Queen,Shared,130
+Duta Park,800,"51200 Kuala Lumpur, Federal Territory of Kuala Lumpur",Medium,Queen,Shared,130
+Duta Park,700,"51200 Kuala Lumpur, Federal Territory of Kuala Lumpur",Single,Single,Shared,130
+Sunway Avila,1000,"2, Jalan Seri Wangsa 2, Taman Sri Rampai, 53300 Kuala Lumpur, Federal Territory of Kuala Lumpur",Master,Queen,Private,120
+Sunway Avila,850,"2, Jalan Seri Wangsa 2, Taman Sri Rampai, 53300 Kuala Lumpur, Federal Territory of Kuala Lumpur",Master With Big Window,Queen,Private,120
+Sunway Avila,800,"2, Jalan Seri Wangsa 2, Taman Sri Rampai, 53300 Kuala Lumpur, Federal Territory of Kuala Lumpur",Medium,Queen,Shared,120
+Sunway Avila,700,"2, Jalan Seri Wangsa 2, Taman Sri Rampai, 53300 Kuala Lumpur, Federal Territory of Kuala Lumpur",Single,Single,Shared,120
+The Riv @ Riveria,1700,"6, The Riv @ Riveria City, Jalan Tun Sambanthan, Brickfields, 50470 Kuala Lumpur, Wilayah Persekutuan Kuala Lumpur",Studio,Queen,Private,100
+The Riv @ Riveria,1700,"6, The Riv @ Riveria City, Jalan Tun Sambanthan, Brickfields, 50470 Kuala Lumpur, Wilayah Persekutuan Kuala Lumpur",Studio,Queen,Private,100
+Pixel City Central,850,"10, Jalan Sri Permaisuri 10, Bandar Sri Permaisuri, 56000 Kuala Lumpur, Wilayah Persekutuan Kuala Lumpur",Balcony,Queen,Shared,130
+Pixel City Central,1000,"10, Jalan Sri Permaisuri 10, Bandar Sri Permaisuri, 56000 Kuala Lumpur, Wilayah Persekutuan Kuala Lumpur",Studio,Queen,Private,130
+Pixel City Central,650,"10, Jalan Sri Permaisuri 10, Bandar Sri Permaisuri, 56000 Kuala Lumpur, Wilayah Persekutuan Kuala Lumpur",Single,Single,Shared,130
+Pixel City Central,950,"10, Jalan Sri Permaisuri 10, Bandar Sri Permaisuri, 56000 Kuala Lumpur, Wilayah Persekutuan Kuala Lumpur",Master,Queen,Private,130
+Pixel City Central,800,"10, Jalan Sri Permaisuri 10, Bandar Sri Permaisuri, 56000 Kuala Lumpur, Wilayah Persekutuan Kuala Lumpur",Medium,Queen,Shared,130
+MH Platinum 2,1300,"Lot 21770 Setapak Jaya, 53200 Kuala Lumpur, Federal Territory of Kuala Lumpur",Studio,Queen,Private,120
+MH Platinum 2,1100,"Lot 21770 Setapak Jaya, 53200 Kuala Lumpur, Federal Territory of Kuala Lumpur",Master,Queen,Private,120
+MH Platinum 2,750,"Lot 21770 Setapak Jaya, 53200 Kuala Lumpur, Federal Territory of Kuala Lumpur",Medium With Big Window,Queen,Shared,120
+MH Platinum 2,700,"Lot 21770 Setapak Jaya, 53200 Kuala Lumpur, Federal Territory of Kuala Lumpur",Medium,Queen,Shared,120
+MH Platinum 2,700,"Lot 21770 Setapak Jaya, 53200 Kuala Lumpur, Federal Territory of Kuala Lumpur",Single,Single,Shared,120
+121 Residence,1100,"Lorong Masjid 1, PJU 6A, 47400 Petaling Jaya, Selangor",Master,Queen,Private,120
+121 Residence,900,"Lorong Masjid 1, PJU 6A, 47400 Petaling Jaya, Selangor",Balcony,Queen,Shared,120
+121 Residence,800,"Lorong Masjid 1, PJU 6A, 47400 Petaling Jaya, Selangor",Medium,Queen,Shared,120
+121 Residence,700,"Lorong Masjid 1, PJU 6A, 47400 Petaling Jaya, Selangor",Single,Single,Shared,120
+The Harmony,800,"Lot 31208, Old Klang Rd, Taman Oug Square, 58200 Kuala Lumpur, Federal Territory of Kuala Lumpur",Medium,Queen,Private,120
+The Harmony,850,"Lot 31208, Old Klang Rd, Taman Oug Square, 58200 Kuala Lumpur, Federal Territory of Kuala Lumpur",Balcony,Queen,Shared,120
+The Harmony,900,"Lot 31208, Old Klang Rd, Taman Oug Square, 58200 Kuala Lumpur, Federal Territory of Kuala Lumpur",Medium,Queen,Shared,120
+The Harmony,1100,"Lot 31208, Old Klang Rd, Taman Oug Square, 58200 Kuala Lumpur, Federal Territory of Kuala Lumpur",Master,Queen,Shared,120
+Residency Riamas,1100,"1, Jalan Awan Makmur, Taman Overseas Union, 58200 Kuala Lumpur, Wilayah Persekutuan Kuala Lumpur",Master,Queen,Private,120
+Residency Riamas,750,"1, Jalan Awan Makmur, Taman Overseas Union, 58200 Kuala Lumpur, Wilayah Persekutuan Kuala Lumpur",Medium,Queen,Shared,120
+Residency Riamas,750,"1, Jalan Awan Makmur, Taman Overseas Union, 58200 Kuala Lumpur, Wilayah Persekutuan Kuala Lumpur",Balcony,Queen,Shared,120
+Residency Riamas,650,"1, Jalan Awan Makmur, Taman Overseas Union, 58200 Kuala Lumpur, Wilayah Persekutuan Kuala Lumpur",Medium,Queen,Shared,120
+Nexus Residency,1100,"1, Jln. Selangat, Taman Pertama, 56100 Kuala Lumpur, Wilayah Persekutuan Kuala Lumpur",Master,Queen,Private,120
+Nexus Residency,800,"1, Jln. Selangat, Taman Pertama, 56100 Kuala Lumpur, Wilayah Persekutuan Kuala Lumpur",Medium,Queen,Shared,120
+Nexus Residency,800,"1, Jln. Selangat, Taman Pertama, 56100 Kuala Lumpur, Wilayah Persekutuan Kuala Lumpur",Medium,Queen,Shared,120
+Nexus Residency,800,"1, Jln. Selangat, Taman Pertama, 56100 Kuala Lumpur, Wilayah Persekutuan Kuala Lumpur",Medium,Queen,Shared,120
+Skyline KL,1200,"Jalan San Peng, Pudu, 55200 Kuala Lumpur, Wilayah Persekutuan Kuala Lumpur",Master,Queen,Private,
+Skyline KL,800,"Jalan San Peng, Pudu, 55200 Kuala Lumpur, Wilayah Persekutuan Kuala Lumpur",Medium,Queen,Shared,
+Skyline KL,700,"Jalan San Peng, Pudu, 55200 Kuala Lumpur, Wilayah Persekutuan Kuala Lumpur",Single,Queen,Shared,

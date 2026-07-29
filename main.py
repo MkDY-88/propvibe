@@ -27,7 +27,7 @@ import uuid
 from pathlib import Path
 
 from dotenv import load_dotenv
-from fastapi import Body, FastAPI, File, Form, Header, HTTPException, UploadFile
+from fastapi import Body, FastAPI, File, Form, Header, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse, RedirectResponse
 from starlette.background import BackgroundTask
 
@@ -47,12 +47,27 @@ from starlette.background import BackgroundTask
 # clean error instead of crashing the whole app on startup.
 load_dotenv(Path(__file__).resolve().parent / ".env")
 
+# Registers a Pillow opener for .HEIC/.HEIF (iPhone photos), which Pillow can't
+# decode on its own. Must happen before any Image.open() call sees one - so at
+# import time here, not lazily inside a request handler. Best-effort: if the
+# package is missing, HEIC uploads just fail their existing "could not be read
+# as an image" check in poster_generator instead of crashing startup.
+try:
+    import pillow_heif
+
+    pillow_heif.register_heif_opener()
+except ImportError:
+    logging.getLogger("propvibe.main").warning(
+        "pillow-heif is not installed - .HEIC/.HEIF photos will be rejected as unreadable."
+    )
+
 # NOTE: this is the `from X import Y` form on purpose - it binds only
 # `generate_poster`, so the `app` package name never lands in this module's
 # namespace and cannot shadow the `app = FastAPI()` instance below.
 from app.poster_generator import GRID_TEMPLATE_MIN_PHOTOS, check_photos, generate_poster
 from app.copy_generator import STYLE_TAGS, CaptionError, generate_caption
 from app.trend_research import research_trend
+from app.listings_source import next_unposted_listing, random_pool_photo
 from app.facebook_publisher import (
     FacebookPublishError,
     get_post_engagement,
@@ -542,6 +557,125 @@ def create_post_endpoint(
     }
 
 
+@app.post("/auto-create-post")
+# `def`, not `async def` - same reasoning as /create-post: Pillow, the trend
+# search and the caption call are all blocking, so this needs FastAPI's
+# threadpool to let concurrent requests actually overlap.
+def auto_create_post_endpoint(
+    # Set by the dashboard's Skip button to the row_index of the listing
+    # currently on screen, so the next candidate is a *different* listing
+    # rather than the same one again. No server-side state for skips - the
+    # value is only ever passed through on this one request.
+    after: int | None = Query(None),
+):
+    """
+    Auto-ready the next un-posted room_listings.csv row: pick a listing,
+    assign a demo photo, and build the same poster + caption /create-post
+    does - with no photo upload or form fields required.
+
+    "Un-posted" is read from Airtable (see app.airtable_client.get_posts's
+    listing_row_index), not a local file, because Railway's filesystem is
+    ephemeral - a local tracker would reset on every redeploy and risk
+    re-posting an already-published listing straight back to Facebook.
+
+    NOTE: this requires a "Listing Row Index" Number column on the Airtable
+    Posts table (or the AIRTABLE_FIELD_LISTING_ROW_INDEX override pointing at
+    an existing column). Without it, create_post_record() silently drops the
+    field (same defensive behaviour as every other field in airtable_client),
+    and "un-posted" tracking has no way to durably progress past whatever
+    starting rows.
+
+    Returns the same JSON shape as /create-post, plus the listing's own
+    details (`row_index`, `condo_name`, `price`, `address`, `features`) so the
+    dashboard can render a single approve/skip card without a manual form.
+    """
+    try:
+        posted = get_posts()
+    except AirtableError as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Could not read Airtable to pick the next listing: {exc}",
+        )
+
+    posted_indices = {
+        post["listing_row_index"]
+        for post in posted
+        if post.get("listing_row_index") is not None
+    }
+
+    listing = next_unposted_listing(posted_indices, after=after)
+    if listing is None:
+        raise HTTPException(
+            status_code=404,
+            detail="No un-posted listings remain in room_listings.csv.",
+        )
+
+    try:
+        photo_path = random_pool_photo()
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+    # Same reused check as the manual flow: confirms the photo actually
+    # decodes (e.g. a .HEIC file when pillow-heif isn't installed) rather than
+    # silently shipping a grey placeholder rectangle.
+    usable_paths = _usable_photos([photo_path])
+
+    style_tag = _best_performing_style() or random.choice(STYLE_TAGS)
+
+    UPLOAD_ROOT.mkdir(parents=True, exist_ok=True)
+    job_dir = Path(tempfile.mkdtemp(prefix="auto_", dir=UPLOAD_ROOT))
+    try:
+        output_path = job_dir / f"poster_{uuid.uuid4().hex[:8]}.png"
+        try:
+            generate_poster(
+                photos=usable_paths,
+                price=listing.price,
+                location=listing.address,
+                bedrooms=0,
+                bathrooms=0,
+                output_path=str(output_path),
+                style_tag=style_tag,
+                details=listing.features_text,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+
+        poster_base64 = base64.b64encode(output_path.read_bytes()).decode("ascii")
+
+        trend_context = research_trend(listing.address)
+
+        try:
+            copy = generate_caption(
+                listing.price,
+                listing.address,
+                0,
+                0,
+                preferred_style=style_tag,
+                trend_context=trend_context,
+                listing_details=listing.features_text,
+            )
+        except CaptionError as exc:
+            raise HTTPException(status_code=502, detail=str(exc))
+    finally:
+        shutil.rmtree(job_dir, ignore_errors=True)
+
+    return {
+        "row_index": listing.row_index,
+        "condo_name": listing.condo_name,
+        "price": listing.price,
+        "address": listing.address,
+        "features": listing.features_text,
+        "caption": copy["caption"],
+        "hashtags": copy["hashtags"],
+        "cta": copy["cta"],
+        "style_tag": copy["style_tag"],
+        "template_id": _template_id_for(len(usable_paths)),
+        "trend_used": trend_context is not None,
+        "trend_context": trend_context,
+        "poster_base64": poster_base64,
+    }
+
+
 def _build_fb_message(caption: str | None, hashtags: list | None, cta: str | None) -> str:
     """
     Assemble the final Facebook post text: caption, hashtags, then CTA.
@@ -618,7 +752,8 @@ def publish_post_endpoint(payload: dict = Body(...)):
           "hashtags":      ["luxuryliving", ...],  # no '#' prefix needed
           "cta":           "DM us to book a viewing",
           "style_tag":     "Warm",                 # optional - from /create-post
-          "template_id":   "A"                     # optional - from /create-post
+          "template_id":   "A",                    # optional - from /create-post
+          "listing_row_index": 17                   # optional - from /auto-create-post
         }
 
     Before publishing we mint a short tracking id and append its link
@@ -649,6 +784,19 @@ def publish_post_endpoint(payload: dict = Body(...)):
     # later. Absent/None is fine - create_post_record simply skips empty fields.
     style_tag = payload.get("style_tag")
     template_id = payload.get("template_id")
+
+    # Threaded through from /auto-create-post (absent for the manual-form
+    # flow). This is what makes "next un-posted listing" durable in Airtable
+    # across redeploys - see app.listings_source and get_posts().
+    raw_row_index = payload.get("listing_row_index")
+    listing_row_index: int | None = None
+    if raw_row_index is not None:
+        try:
+            listing_row_index = int(raw_row_index)
+        except (TypeError, ValueError):
+            raise HTTPException(
+                status_code=400, detail="'listing_row_index' must be an integer."
+            )
 
     image_bytes = _decode_poster(payload.get("poster_base64"))
 
@@ -707,6 +855,7 @@ def publish_post_endpoint(payload: dict = Body(...)):
             caption=caption if isinstance(caption, str) else "",
             facebook_post_id=result["post_id"],
             tracking_id=tracking_id,
+            listing_row_index=listing_row_index,
         )
         response["airtable_logged"] = True
         response["airtable_record_id"] = record_id

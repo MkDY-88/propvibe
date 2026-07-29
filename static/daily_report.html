@@ -6,20 +6,65 @@
   <meta name="robots" content="noindex, nofollow" />
   <title>PropVibe - End-of-Day Report</title>
   <style>
-    :root { --navy: #1a2b4c; --gold: #d4af37; --gray: #4a5568; --line: #e2e8f0; }
+    /* ---- PropVibe shared design system (keep identical across pages) ---- */
+    :root {
+      --navy: #1a2b4c; --navy-deep: #14213a; --navy-soft: #24365c;
+      --gold: #d4af37; --gold-tint: #fbf7e8;
+      --gray: #4a5568; --line: #e2e8f0; --ink: #1a202c;
+      --bg: #f6f7f9; --card: #ffffff; --chip: #eef1f6; --faint: #94a3b8;
+      --radius: 10px; --radius-sm: 6px;
+      --shadow-sm: 0 1px 3px rgba(26, 43, 76, 0.08);
+      --shadow-md: 0 10px 30px rgba(26, 43, 76, 0.08);
+      --shadow-lift: 0 8px 20px rgba(26, 43, 76, 0.16);
+      --ease: cubic-bezier(0.33, 1, 0.68, 1);
+      --dur-fast: 0.16s; --dur: 0.3s; --dur-slow: 0.55s;
+    }
     * { box-sizing: border-box; }
+    @keyframes pv-fade-up { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } }
+    @keyframes pv-fade-in { from { opacity: 0; } to { opacity: 1; } }
+    @keyframes pv-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.45; } }
+    @keyframes pv-spin { to { transform: rotate(360deg); } }
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after {
+        animation-duration: 0.01ms !important; animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+      }
+    }
+    .site-nav {
+      background: var(--navy-deep); border-bottom: 3px solid var(--gold);
+      display: flex; align-items: center; justify-content: space-between;
+      flex-wrap: wrap; gap: 8px 16px; padding: 13px 24px;
+    }
+    .site-nav .brand {
+      color: #fff; font-weight: 700; font-size: 17px; letter-spacing: 0.02em;
+      text-decoration: none;
+    }
+    .site-nav .brand span { color: var(--gold); }
+    .site-nav-links { display: flex; flex-wrap: wrap; gap: 4px; }
+    .site-nav-links a {
+      color: rgba(255, 255, 255, 0.82); text-decoration: none; font-size: 13px;
+      font-weight: 600; padding: 7px 12px; border-radius: 999px;
+      transition: background var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease);
+    }
+    .site-nav-links a:hover { background: rgba(255, 255, 255, 0.14); color: #fff; }
+    .site-nav-links a[aria-current="page"] { background: var(--gold); color: var(--navy-deep); }
+    .page-head {
+      background: linear-gradient(135deg, var(--navy) 0%, var(--navy-soft) 100%);
+      color: #fff; padding: 20px 24px;
+    }
+    .page-head h1 { margin: 0; font-size: 20px; }
+    .page-head p { margin: 4px 0 0; font-size: 13px; opacity: 0.8; }
+    /* ---- end shared design system ---- */
+
     body {
       font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
-      margin: 0; background: #f6f7f9; color: #1a202c; line-height: 1.5;
+      margin: 0; background: var(--bg); color: var(--ink); line-height: 1.5;
     }
-    header { background: var(--navy); color: #fff; padding: 18px 24px; }
-    header h1 { margin: 0; font-size: 20px; }
-    header p { margin: 4px 0 0; font-size: 13px; opacity: 0.8; }
-    main { max-width: 780px; margin: 0 auto; padding: 24px; }
+    main { max-width: 780px; margin: 0 auto; padding: 24px; animation: pv-fade-up var(--dur-slow) var(--ease) both; }
     section { margin-bottom: 28px; }
     .card {
-      background: #fff; border: 1px solid var(--line); border-radius: 10px;
-      padding: 20px;
+      background: var(--card); border: 1px solid var(--line); border-radius: var(--radius);
+      padding: 20px; box-shadow: var(--shadow-sm);
     }
     h2 {
       font-size: 15px; text-transform: uppercase; letter-spacing: 0.04em;
@@ -33,53 +78,80 @@
       grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
     }
     .tile {
-      background: #fff; border: 1px solid var(--line); border-radius: 10px;
-      padding: 16px 18px;
+      background: var(--card); border: 1px solid var(--line); border-radius: var(--radius);
+      padding: 16px 18px; box-shadow: var(--shadow-sm);
+      animation: pv-fade-up var(--dur) var(--ease) both;
+      transition: box-shadow var(--dur-fast) var(--ease), transform var(--dur-fast) var(--ease);
     }
+    .tile:hover { box-shadow: var(--shadow-lift); transform: translateY(-1px); }
+    .tile:nth-child(2) { animation-delay: 0.05s; }
+    .tile:nth-child(3) { animation-delay: 0.1s; }
+    .tile:nth-child(4) { animation-delay: 0.15s; }
     .tile .label {
       font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em;
       color: var(--gray); font-weight: 600;
     }
     .tile .value { font-size: 28px; font-weight: 700; color: var(--navy); margin-top: 2px; }
     .tile .value.small { font-size: 20px; }
-    .tile.highlight { border-color: var(--gold); background: #fbf7e8; }
+    .tile.highlight { border-color: var(--gold); background: var(--gold-tint); }
 
     /* Style table */
     .table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
     table { border-collapse: collapse; width: 100%; font-size: 13px; }
+    tbody tr { animation: pv-fade-in 0.35s var(--ease) both; transition: background var(--dur-fast) var(--ease); }
     th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--line); }
     th {
       font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em;
-      color: var(--gray); background: #f6f7f9;
+      color: var(--gray); background: var(--bg);
     }
+    tbody tr:hover { background: #fafbfc; }
     td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
-    tr.winner { background: #fbf7e8; }
+    tr.winner { background: var(--gold-tint); }
+    tr.winner:hover { background: var(--gold-tint); }
     .tag {
-      display: inline-block; background: #eef1f6; color: var(--navy); font-size: 12px;
+      display: inline-block; background: var(--chip); color: var(--navy); font-size: 12px;
       font-weight: 600; padding: 3px 9px; border-radius: 999px;
     }
-    .tag-best { background: #fbf7e8; border: 1px solid var(--gold); }
+    .tag-best { background: var(--gold-tint); border: 1px solid var(--gold); }
 
     /* AI summary prose */
     #summary { font-size: 15px; }
-    #summary p { margin: 0 0 14px; }
+    #summary p { margin: 0 0 14px; animation: pv-fade-up var(--dur) var(--ease) both; }
     #summary p:last-child { margin-bottom: 0; }
     .summary-fallback { color: var(--gray); font-style: italic; }
 
     .error {
       margin-bottom: 16px; padding: 12px 14px; background: #fdecec;
-      border: 1px solid #f5b5b5; border-radius: 6px; color: #9b1c1c; font-size: 13px;
+      border: 1px solid #f5b5b5; border-radius: var(--radius-sm); color: #9b1c1c; font-size: 13px;
+      animation: pv-fade-up var(--dur) var(--ease) both;
     }
     .empty { color: var(--gray); font-size: 13px; padding: 18px 0; text-align: center; }
     .hidden { display: none; }
-    #loading { color: var(--gray); font-size: 14px; padding: 32px 0; text-align: center; }
+    #loading { color: var(--gray); font-size: 14px; padding: 40px 12px; text-align: center; }
+    #loading::before {
+      content: ""; display: block; width: 28px; height: 28px; margin: 0 auto 14px;
+      border-radius: 50%; border: 3px solid var(--chip); border-top-color: var(--gold);
+      animation: pv-spin 0.8s linear infinite;
+    }
     footer { color: var(--gray); font-size: 12px; padding: 0 24px 28px; text-align: center; }
   </style>
 </head>
 <body>
-  <header>
-    <h1>PropVibe - End-of-Day Report</h1>
-    <p id="subtitle">What the self-learning loop did today: posts, styles, and what it learned.</p>
+  <nav class="site-nav">
+    <a class="brand" href="/">Prop<span>Vibe</span></a>
+    <div class="site-nav-links">
+      <a href="/">Home</a>
+      <a href="/dashboard">Dashboard</a>
+      <a href="/listing">Listing</a>
+      <a href="/internal-dashboard">Internal</a>
+      <a href="/report" aria-current="page">Report</a>
+      <a href="/privacy">Privacy</a>
+    </div>
+  </nav>
+
+  <header class="page-head">
+    <h1>End-of-Day Report</h1>
+    <p>What the self-learning loop did today: posts, styles, and what it learned.</p>
   </header>
 
   <main>

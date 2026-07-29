@@ -9,44 +9,213 @@
     * { box-sizing: border-box; }
     body {
       font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
-      margin: 0; background: #f6f7f9; color: #1a202c; line-height: 1.6;
-      min-height: 100vh; display: flex; align-items: center; justify-content: center;
-      padding: 24px;
+      margin: 0; background: #f6f7f9; color: #1a202c; line-height: 1.5;
     }
+    header { background: var(--navy); color: #fff; padding: 18px 24px; }
+    header h1 { margin: 0; font-size: 20px; }
+    header p { margin: 4px 0 0; font-size: 13px; opacity: 0.8; }
+    main { max-width: 560px; margin: 0 auto; padding: 24px; }
     .card {
-      background: #fff; border: 1px solid var(--line); border-radius: 12px;
-      max-width: 520px; width: 100%; padding: 36px 32px; text-align: center;
-      box-shadow: 0 10px 30px rgba(26, 43, 76, 0.08);
+      background: #fff; border: 1px solid var(--line); border-radius: 10px;
+      padding: 20px; margin-bottom: 20px;
     }
     .badge {
       display: inline-block; background: #fbf7e8; color: var(--navy);
       border: 1px solid var(--gold); border-radius: 999px;
       font-size: 12px; font-weight: 700; letter-spacing: 0.06em;
-      text-transform: uppercase; padding: 5px 12px; margin-bottom: 18px;
+      text-transform: uppercase; padding: 4px 12px; margin-bottom: 12px;
     }
-    h1 { color: var(--navy); font-size: 26px; margin: 0 0 10px; }
-    p { color: var(--gray); font-size: 15px; margin: 0 0 14px; }
-    .cta {
-      display: inline-block; margin-top: 10px; background: var(--navy); color: #fff;
-      font-weight: 600; text-decoration: none; padding: 12px 22px; border-radius: 8px;
+    .listing-name { margin: 0 0 4px; font-size: 22px; color: var(--navy); }
+    .listing-address { margin: 0 0 12px; font-size: 14px; color: var(--gray); }
+    .listing-price { font-size: 24px; font-weight: 700; color: var(--navy); margin: 0 0 10px; }
+    .listing-features { font-size: 14px; color: var(--gray); margin: 0; }
+    .generic-copy { font-size: 15px; color: var(--gray); margin: 0; }
+    .hidden { display: none; }
+
+    .chat-title {
+      font-size: 15px; text-transform: uppercase; letter-spacing: 0.04em;
+      color: var(--gray); margin: 0 0 14px;
     }
-    .foot { margin-top: 22px; font-size: 12px; color: #94a3b8; }
+    #messages {
+      height: 320px; overflow-y: auto; display: flex; flex-direction: column;
+      gap: 10px; padding: 4px 2px; margin-bottom: 14px;
+    }
+    .msg {
+      max-width: 82%; padding: 10px 14px; border-radius: 12px;
+      font-size: 14px; white-space: pre-wrap; word-wrap: break-word;
+    }
+    .msg-assistant {
+      align-self: flex-start; background: #f1f4f9; color: #1a202c;
+      border: 1px solid var(--line); border-bottom-left-radius: 4px;
+    }
+    .msg-user {
+      align-self: flex-end; background: var(--navy); color: #fff;
+      border-bottom-right-radius: 4px;
+    }
+    .msg-error {
+      align-self: flex-start; background: #fbf7e8; color: var(--navy);
+      border: 1px solid var(--gold); border-bottom-left-radius: 4px;
+      font-size: 13px;
+    }
+    .typing { color: var(--gray); font-style: italic; }
+    .input-row { display: flex; gap: 10px; }
+    #chat-input {
+      flex: 1; font: inherit; font-size: 14px; padding: 11px 14px;
+      border: 1px solid var(--line); border-radius: 8px; outline: none;
+    }
+    #chat-input:focus { border-color: var(--navy); }
+    #send-btn {
+      font: inherit; font-weight: 600; border: 0; border-radius: 8px;
+      padding: 11px 20px; cursor: pointer; background: var(--navy); color: #fff;
+    }
+    #send-btn:disabled { background: #9aa7bd; cursor: not-allowed; }
+    .foot { text-align: center; font-size: 12px; color: #94a3b8; margin-top: 4px; }
   </style>
 </head>
 <body>
-  <main class="card">
-    <span class="badge">Featured Listing</span>
-    <h1>Thanks for your interest!</h1>
-    <p>
-      You clicked through from one of our social posts &mdash; a real agent would
-      have their full listing gallery, floor plans and pricing right here.
-    </p>
-    <p>
-      This is a placeholder landing page for the PropVibe demo. Your click was
-      recorded so we can learn which posts drive the most interest.
-    </p>
-    <a class="cta" href="/dashboard">Back to PropVibe</a>
+  <header>
+    <h1>PropVibe</h1>
+    <p>Find your next home</p>
+  </header>
+
+  <main>
+    <section class="card">
+      <span class="badge">Featured Listing</span>
+
+      <div id="property" class="hidden">
+        <h2 class="listing-name" id="listing-name"></h2>
+        <p class="listing-address" id="listing-address"></p>
+        <p class="listing-price" id="listing-price"></p>
+        <p class="listing-features" id="listing-features"></p>
+      </div>
+
+      <div id="generic" class="hidden">
+        <h2 class="listing-name">Looking for a place?</h2>
+        <p class="generic-copy">
+          Tell us what you're after &mdash; budget, area, move-in date &mdash;
+          and we'll point you at the right listing. Just ask below.
+        </p>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2 class="chat-title">Ask us anything</h2>
+      <div id="messages"></div>
+      <form class="input-row" id="chat-form">
+        <input id="chat-input" type="text" autocomplete="off"
+               placeholder="e.g. Is the price negotiable?" />
+        <button id="send-btn" type="submit">Send</button>
+      </form>
+    </section>
+
     <div class="foot">PropVibe &middot; automated real-estate social posting</div>
   </main>
+
+  <script>
+    const messagesBox = document.getElementById("messages");
+    const chatForm = document.getElementById("chat-form");
+    const chatInput = document.getElementById("chat-input");
+    const sendBtn = document.getElementById("send-btn");
+
+    const trackingId = new URLSearchParams(window.location.search).get("tid") || "";
+
+    // Running conversation, oldest first, as {role, content} - sent with every
+    // /chat call so the assistant keeps its thread. Lives only on this page.
+    const history = [];
+
+    function addMessage(className, text) {
+      const div = document.createElement("div");
+      div.className = "msg " + className;
+      div.textContent = text;
+      messagesBox.appendChild(div);
+      messagesBox.scrollTop = messagesBox.scrollHeight;
+      return div;
+    }
+
+    function greet(listing) {
+      const text = listing
+        ? `Hi! You're looking at ${listing.condo_name} (${listing.price}). ` +
+          "Happy to answer anything about the unit, the area, or arranging a viewing."
+        : "Hi! Tell me a bit about what you're looking for - budget, area, " +
+          "move-in date - and I'll help you find a good fit.";
+      addMessage("msg-assistant", text);
+      history.push({ role: "assistant", content: text });
+    }
+
+    function showProperty(listing) {
+      document.getElementById("listing-name").textContent = listing.condo_name;
+      document.getElementById("listing-address").textContent = listing.address;
+      document.getElementById("listing-price").textContent = listing.price;
+      document.getElementById("listing-features").textContent = listing.features_text;
+      document.getElementById("property").classList.remove("hidden");
+    }
+
+    function showGeneric() {
+      document.getElementById("generic").classList.remove("hidden");
+    }
+
+    async function loadListing() {
+      if (!trackingId) {
+        showGeneric();
+        greet(null);
+        return;
+      }
+      try {
+        const resp = await fetch(`/listing-info/${encodeURIComponent(trackingId)}`);
+        const payload = await resp.json();
+        if (resp.ok && payload.found) {
+          showProperty(payload);
+          greet(payload);
+          return;
+        }
+      } catch (err) {
+        // fall through - an unreachable lookup just means generic copy
+      }
+      showGeneric();
+      greet(null);
+    }
+
+    chatForm.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const message = chatInput.value.trim();
+      if (!message || sendBtn.disabled) return;
+
+      addMessage("msg-user", message);
+      chatInput.value = "";
+      sendBtn.disabled = true;
+      chatInput.disabled = true;
+      const typing = addMessage("msg-assistant typing", "Typing…");
+
+      try {
+        const resp = await fetch("/chat", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          // history = the turns BEFORE this message; the server appends the
+          // new message itself.
+          body: JSON.stringify({ tracking_id: trackingId, message, history }),
+        });
+        const payload = await resp.json().catch(() => ({}));
+        typing.remove();
+
+        if (!resp.ok || typeof payload.reply !== "string") {
+          addMessage("msg-error", "Sorry - we're having trouble right now. Please try again.");
+          return;
+        }
+
+        addMessage("msg-assistant", payload.reply);
+        history.push({ role: "user", content: message });
+        history.push({ role: "assistant", content: payload.reply });
+      } catch (err) {
+        typing.remove();
+        addMessage("msg-error", "Sorry - we're having trouble right now. Please try again.");
+      } finally {
+        sendBtn.disabled = false;
+        chatInput.disabled = false;
+        chatInput.focus();
+      }
+    });
+
+    loadListing();
+  </script>
 </body>
 </html>

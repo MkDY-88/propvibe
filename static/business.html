@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>PropVibe - Privacy Policy</title>
+  <title>PropVibe - Business Model</title>
   <style>
     /* ---- PropVibe shared design system (keep identical across pages) ---- */
     :root {
@@ -73,12 +73,9 @@
       font-size: 12px; font-weight: 700; letter-spacing: 0.06em;
       text-transform: uppercase; padding: 5px 12px; margin-bottom: 18px;
     }
-    h1 { color: var(--navy); font-size: 28px; margin: 0 0 6px; }
-    .updated { color: var(--faint); font-size: 13px; margin: 0 0 28px; }
+    h1 { color: var(--navy); font-size: 28px; margin: 0 0 28px; }
     h2 { color: var(--navy); font-size: 18px; margin: 28px 0 8px; }
-    p, li { color: var(--gray); font-size: 15px; }
-    ul { margin: 8px 0; padding-left: 22px; }
-    li { margin: 4px 0; }
+    p { color: var(--gray); font-size: 15px; }
     a { color: var(--navy); }
     .cta {
       display: inline-block; margin-top: 28px; background: var(--navy); color: #fff;
@@ -100,54 +97,59 @@
       <a href="/listing">Listing</a>
       <a href="/internal-dashboard">Internal</a>
       <a href="/report">Report</a>
-      <a href="/business">Business</a>
-      <a href="/privacy" aria-current="page">Privacy</a>
+      <a href="/business" aria-current="page">Business</a>
+      <a href="/privacy">Privacy</a>
     </div>
   </nav>
 
   <div class="page">
     <main class="card">
-      <span class="badge">Privacy Policy</span>
-      <h1>PropVibe Privacy Policy</h1>
-      <p class="updated">Last updated: July 26, 2026</p>
+      <span class="badge">Business Model</span>
+      <h1>How PropVibe Works As a Business</h1>
 
-      <h2>What PropVibe does</h2>
+      <h2>The problem</h2>
       <p>
-        PropVibe is a tool used by real-estate agents to generate AI property
-        listing posts &mdash; images and captions &mdash; from a set of listing
-        details and photos, and publish them to a connected Facebook Page.
+        Every property agent posts on social media. Almost none of them know
+        whether what they posted actually worked &mdash; and even when they do,
+        nothing about their process improves tomorrow because of it. Marketing
+        stays static while the market moves.
       </p>
 
-      <h2>Information we collect</h2>
-      <ul>
-        <li>Property listing details provided by the agent using the tool (photos, price, location, bedrooms/bathrooms).</li>
-        <li>Aggregate click-tracking data on shared listing links (how many times a link was clicked).</li>
-        <li>Engagement data (likes and comments) read back from the connected Facebook Page for published posts.</li>
-      </ul>
-
-      <h2>Information we do NOT collect</h2>
+      <h2>Who it's for</h2>
       <p>
-        We do not collect any personal data from people who click a shared
-        listing link. We only record an aggregate click count &mdash; we do not
-        identify, profile, or track individual visitors.
+        Individual agents and small agencies &mdash; not large enterprise firms.
+        This is the &ldquo;AI Solopreneur&rdquo; model applied directly: one
+        person, running the marketing output of a full team, through one system.
       </p>
 
-      <h2>How data is stored</h2>
+      <h2>How it makes money</h2>
       <p>
-        Listing posts and engagement records are stored in Airtable, which
-        PropVibe uses as its backend data store.
+        A simple monthly subscription, priced by posting volume &mdash;
+        positioned well below the cost of even a part-time social media
+        assistant or freelance designer. Heavier users (more listings, more
+        posts) pay more; light users pay less. No large upfront cost, no
+        long-term contract required.
       </p>
 
-      <h2>Contact</h2>
+      <h2>Why it scales</h2>
       <p>
-        Questions about this policy can be sent to
-        <a href="mailto:contact@propvibe.example">contact@propvibe.example</a>.
+        Every AI-driven step in this system &mdash; caption generation, poster
+        creation, lighting/weather image variants &mdash; is built cache-first:
+        each unique combination is generated once, ever, and reused after that.
+        This isn't just a performance choice, it's a deliberate cost-control
+        decision, so unit economics stay predictable per listing rather than
+        growing unbounded with usage. The backend itself is stateless per
+        request, so serving more agents doesn't require re-architecting
+        anything.
       </p>
 
-      <p style="font-size: 13px; color: #94a3b8; margin-top: 24px;">
-        PropVibe is a student hackathon project. This policy is provided to
-        describe the app's data practices in plain terms and is not intended as
-        a legal document.
+      <h2>On scope</h2>
+      <p>
+        Some of what we built goes beyond what a working agent strictly needs
+        day to day &mdash; we built it anyway, because it was part of the brief,
+        and because knowing what's essential versus what's a nice-to-have is
+        itself part of good product judgment. Everything extra is still built
+        to the same cost-bounded, cache-first standard as the core system.
       </p>
 
       <a class="cta" href="/dashboard">Back to PropVibe</a>

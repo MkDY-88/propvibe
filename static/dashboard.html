@@ -116,6 +116,31 @@
       border: 1px solid #f0d78c; border-radius: var(--radius-sm); color: #8a6116; font-size: 13px;
       animation: pv-fade-up var(--dur) var(--ease) both;
     }
+    #posted-warning { margin: 0 0 12px; }
+    /* Search box: same input treatment as the edit panel, results as chip-
+       styled rows consistent with the toggle cells. */
+    .search-card { margin-bottom: 16px; }
+    .search-card input[type="text"] {
+      width: 100%; font: inherit; font-size: 14px; padding: 10px 12px;
+      border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--card);
+      color: var(--ink); outline: none;
+      transition: border-color var(--dur-fast) var(--ease), box-shadow var(--dur-fast) var(--ease);
+    }
+    .search-card input[type="text"]:focus {
+      border-color: var(--navy); box-shadow: 0 0 0 3px rgba(26, 43, 76, 0.12);
+    }
+    .search-results { margin-top: 10px; display: grid; gap: 8px; animation: pv-fade-up var(--dur) var(--ease) both; }
+    .search-result {
+      display: block; width: 100%; text-align: left; font-weight: 400;
+      background: var(--chip); border: 1px solid var(--line); border-radius: var(--radius-sm);
+      padding: 10px 12px;
+    }
+    .search-result:hover:not(:disabled) { border-color: var(--navy); box-shadow: var(--shadow-sm); }
+    .search-result-top { display: flex; justify-content: space-between; gap: 12px; }
+    .search-result .sr-name { font-weight: 600; color: var(--navy); }
+    .search-result .sr-price { font-weight: 700; color: var(--navy); white-space: nowrap; }
+    .search-result .sr-address { display: block; font-size: 12.5px; color: var(--gray); margin-top: 2px; }
+    .search-empty { color: var(--gray); font-size: 13px; margin: 10px 0 0; }
     #poster {
       width: 100%; border-radius: 8px; border: 1px solid var(--line); display: block;
       margin-bottom: 16px; box-shadow: var(--shadow-sm);
@@ -182,10 +207,20 @@
 
   <header class="page-head">
     <h1>Agent Dashboard</h1>
-    <p>The next listing is generated automatically. Review it, then Approve &amp; Post or Skip.</p>
+    <p>The next listing is generated automatically. Review it, then Approve &amp; Post or Skip — or search for a specific listing instead.</p>
   </header>
 
   <main>
+    <!-- Optional: jump straight to one exact listing instead of taking the
+         next-in-sequence candidate below. Leaving this box alone changes
+         nothing about the default flow. -->
+    <section class="card search-card">
+      <h2>Find a listing</h2>
+      <input id="search-input" type="text" placeholder="Search by condo name or area&hellip;" autocomplete="off" />
+      <div id="search-results" class="search-results hidden"></div>
+      <p id="search-empty" class="search-empty hidden">No listings match that search.</p>
+    </section>
+
     <section class="card">
       <h2>Next listing</h2>
 
@@ -197,6 +232,10 @@
           <p class="listing-address" id="listing-address"></p>
           <p class="listing-price" id="listing-price"></p>
           <p class="listing-features" id="listing-features"></p>
+
+          <div id="posted-warning" class="warning hidden">
+            This listing has already been posted to Facebook &mdash; approving will publish it again.
+          </div>
 
           <img id="poster" alt="Generated poster" />
         </div>
@@ -279,6 +318,10 @@
     const saveBtn = document.getElementById("save-btn");
     const toggleGrid = document.getElementById("toggle-grid");
     const originalToggle = document.getElementById("toggle-original");
+    const postedWarning = document.getElementById("posted-warning");
+    const searchInput = document.getElementById("search-input");
+    const searchResults = document.getElementById("search-results");
+    const searchEmpty = document.getElementById("search-empty");
 
     // Everything /publish-post needs for the listing currently on screen, plus
     // the plain-text fields (price/address/features/photo_filename) an Edit
@@ -369,6 +412,10 @@
 
       updateDisplayFields();
 
+      // Only ever true for a search-loaded listing (the sequential flow skips
+      // posted rows). Warn, don't block - a deliberate re-post is allowed.
+      postedWarning.classList.toggle("hidden", !payload.already_posted);
+
       // A freshly-loaded candidate always starts on its untouched poster,
       // and remembered combos belong to the previous listing.
       originalPoster = payload.poster_base64;
@@ -384,23 +431,22 @@
       setButtonsDisabled(false);
     }
 
-    // Fetch a candidate listing. `after` (a row_index) is set on Skip so the
-    // server returns a different listing instead of the one just dismissed.
-    async function loadNext(after) {
+    // Fetch a candidate listing from `url` and render it. Shared by the
+    // default next-in-sequence flow and the search box's direct loads - the
+    // two differ only in how the URL was built and what a 404 means (the
+    // sequence running out vs. a bad row_index).
+    async function requestListing(url, { emptyOn404 = false } = {}) {
       clearStatus();
       result.classList.add("hidden");
       empty.classList.add("hidden");
       placeholder.classList.remove("hidden");
-      placeholder.textContent = "Finding the next listing…";
+      placeholder.textContent = emptyOn404 ? "Finding the next listing…" : "Loading listing…";
       setButtonsDisabled(true);
 
       try {
-        const url = after == null
-          ? "/auto-create-post"
-          : `/auto-create-post?after=${encodeURIComponent(after)}`;
         const resp = await fetch(url, { method: "POST" });
 
-        if (resp.status === 404) {
+        if (resp.status === 404 && emptyOn404) {
           placeholder.classList.add("hidden");
           empty.classList.remove("hidden");
           return;
@@ -420,9 +466,101 @@
       }
     }
 
+    // Default flow: the next un-posted listing in CSV order. `after` (a
+    // row_index) is set on Skip so the server returns a different listing
+    // instead of the one just dismissed.
+    function loadNext(after) {
+      const url = after == null
+        ? "/auto-create-post"
+        : `/auto-create-post?after=${encodeURIComponent(after)}`;
+      return requestListing(url, { emptyOn404: true });
+    }
+
+    // Search flow: load exactly this row, sequence ignored.
+    function loadListingByRow(rowIndex) {
+      return requestListing(`/auto-create-post?row_index=${encodeURIComponent(rowIndex)}`);
+    }
+
     skipBtn.addEventListener("click", () => {
       if (!current) return;
       loadNext(current.row_index);
+    });
+
+    // ---- Search box: optional direct load of one exact listing ----
+
+    let searchTimer = null;
+    // Bumped on every new search (and on clearing the box) so a slow response
+    // that comes back out of order can't repaint newer results.
+    let searchSeq = 0;
+
+    function hideSearchResults() {
+      searchResults.classList.add("hidden");
+      searchResults.innerHTML = "";
+      searchEmpty.classList.add("hidden");
+    }
+
+    async function runSearch(query) {
+      const seq = ++searchSeq;
+      try {
+        const resp = await fetch(`/search-listings?q=${encodeURIComponent(query)}`);
+        const payload = await resp.json().catch(() => ({}));
+        if (seq !== searchSeq) return;
+        if (!resp.ok) {
+          hideSearchResults();
+          return;
+        }
+
+        const matches = payload.results || [];
+        searchResults.innerHTML = "";
+        if (!matches.length) {
+          searchResults.classList.add("hidden");
+          searchEmpty.classList.remove("hidden");
+          return;
+        }
+        searchEmpty.classList.add("hidden");
+
+        matches.forEach((item) => {
+          const btn = document.createElement("button");
+          btn.type = "button";
+          btn.className = "search-result";
+
+          const top = document.createElement("span");
+          top.className = "search-result-top";
+          const name = document.createElement("span");
+          name.className = "sr-name";
+          name.textContent = item.condo_name;
+          const price = document.createElement("span");
+          price.className = "sr-price";
+          price.textContent = item.price;
+          top.append(name, price);
+
+          const address = document.createElement("span");
+          address.className = "sr-address";
+          address.textContent = item.address;
+
+          btn.append(top, address);
+          btn.addEventListener("click", () => {
+            hideSearchResults();
+            searchInput.value = item.condo_name;
+            loadListingByRow(item.row_index);
+          });
+          searchResults.appendChild(btn);
+        });
+        searchResults.classList.remove("hidden");
+      } catch (err) {
+        if (seq === searchSeq) hideSearchResults();
+      }
+    }
+
+    searchInput.addEventListener("input", () => {
+      clearTimeout(searchTimer);
+      const query = searchInput.value.trim();
+      if (!query) {
+        searchSeq++; // A cleared box also invalidates any in-flight search.
+        hideSearchResults();
+        return;
+      }
+      searchTimer = setTimeout(() => runSearch(query), 250);
     });
 
     editBtn.addEventListener("click", () => {

@@ -16,6 +16,8 @@ Endpoints:
   POST /chat          - AI leasing assistant for a lead on the listing page
   POST /sync-engagement - refreshes engagement stats (requires X-Sync-Secret header)
   GET  /internal-dashboard - internal read-only sales-flow view (secret-gated)
+  GET  /daily-report  - end-of-day numbers + AI-written summary, as JSON
+  GET  /report        - the page that renders /daily-report (static HTML)
 """
 
 import base64
@@ -115,15 +117,16 @@ from app.click_tracker import (
 )
 from app.airtable_client import (
     AirtableError,
+    best_performing_style,
     create_post_record,
     get_photo_condition_cache_entries,
     get_posts,
-    get_style_performance,
     log_engagement,
     save_cached_photo_condition,
     upsert_lead_record,
 )
 from app.internal_dashboard import collect_dashboard_data
+from app.daily_report import ReportError, collect_report_data, generate_daily_report
 
 logger = logging.getLogger("propvibe.main")
 
@@ -490,27 +493,6 @@ def _save_uploads(uploads: list[UploadFile], job_dir: Path) -> list[str]:
     return saved_paths
 
 
-def _best_performing_style() -> str | None:
-    """
-    The current best-performing caption style, or None if we can't tell yet.
-
-    Reads average engagement per style from Airtable and returns the top one.
-    This is only a hint for caption generation, so it must never break /create-
-    post: any problem (Airtable unconfigured, API error, no data yet) yields None
-    and generate_caption falls back to a random style. get_style_performance
-    already degrades to {} on failure; the broad guard here is belt-and-braces.
-    """
-    try:
-        performance = get_style_performance()
-    except Exception as exc:  # noqa: BLE001 - a hint must never crash the request
-        logger.warning("Could not read style performance for the caption hint: %s", exc)
-        return None
-
-    if not performance:
-        return None
-    return max(performance, key=performance.get)
-
-
 def _template_id_for(photo_count: int) -> str:
     """Which poster template generate_poster() will pick for this many photos."""
     return "Template A" if photo_count < GRID_TEMPLATE_MIN_PHOTOS else "Template B"
@@ -593,7 +575,7 @@ def create_post_endpoint(
         # STYLE_TAGS when there's no engagement data yet. Doing this here (not
         # inside generate_poster()/generate_caption()) guarantees the poster's
         # palette and the caption's tone always match on a given post.
-        style_tag = _best_performing_style() or random.choice(STYLE_TAGS)
+        style_tag = best_performing_style() or random.choice(STYLE_TAGS)
 
         output_path = job_dir / f"poster_{uuid.uuid4().hex[:8]}.png"
         try:
@@ -723,7 +705,7 @@ def auto_create_post_endpoint(
     # silently shipping a grey placeholder rectangle.
     usable_paths = _usable_photos([photo_path])
 
-    style_tag = _best_performing_style() or random.choice(STYLE_TAGS)
+    style_tag = best_performing_style() or random.choice(STYLE_TAGS)
 
     UPLOAD_ROOT.mkdir(parents=True, exist_ok=True)
     job_dir = Path(tempfile.mkdtemp(prefix="auto_", dir=UPLOAD_ROOT))
@@ -1758,3 +1740,50 @@ def internal_dashboard_data(
         )
 
     return collect_dashboard_data()
+
+
+@app.get("/report")
+def daily_report_page():
+    """Serve the end-of-day report page (it fetches /daily-report for its data)."""
+    page = STATIC_DIR / "daily_report.html"
+    if not page.exists():
+        raise HTTPException(status_code=404, detail="Daily report page not found.")
+    return FileResponse(page, media_type="text/html")
+
+
+@app.get("/daily-report")
+# Deliberately `def`, not `async def`, for the same reason as /create-post: the
+# Airtable reads (sync httpx) and the Claude call (sync Anthropic client) are
+# all blocking, so a plain def lets FastAPI run this on its threadpool instead
+# of stalling the event loop for the several seconds the summary takes.
+def daily_report():
+    """
+    The end-of-day self-learning report: assembled numbers + an AI summary.
+
+    Returns::
+
+        {
+          "data": {...},            # collect_report_data() output - see there
+          "summary": "...",         # Claude-written prose (or a fallback line)
+          "summary_error": null,    # the ReportError message when it fell back
+        }
+
+    This endpoint never 500s over its dependencies: Airtable problems degrade
+    inside collect_report_data (empty sections + an errors list), and a Claude
+    failure degrades to a clear "summary unavailable" line so the raw numbers
+    still come back.
+    """
+    data = collect_report_data()
+
+    try:
+        summary = generate_daily_report(data)
+        summary_error = None
+    except ReportError as exc:
+        logger.warning("Daily report summary unavailable: %s", exc)
+        summary = (
+            "The AI-written summary is unavailable right now - the numbers "
+            "here are still live. Refresh in a moment to try again."
+        )
+        summary_error = str(exc)
+
+    return {"data": data, "summary": summary, "summary_error": summary_error}

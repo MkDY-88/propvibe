@@ -35,6 +35,21 @@
     .btn-approve:disabled { background: #9db8de; cursor: not-allowed; }
     .btn-skip { background: #eef1f6; color: var(--navy); }
     .btn-skip:disabled { opacity: 0.55; cursor: not-allowed; }
+    .btn-edit { background: #eef1f6; color: var(--navy); }
+    .btn-edit:disabled { opacity: 0.55; cursor: not-allowed; }
+    .btn-save { background: #1a6b3a; color: #fff; }
+    .btn-save:disabled { background: #9fc7ad; cursor: not-allowed; }
+    .btn-cancel { background: #eef1f6; color: var(--navy); }
+    #edit-panel input[type="text"], #edit-panel textarea {
+      width: 100%; font: inherit; font-size: 14px; padding: 8px 10px;
+      border: 1px solid var(--line); border-radius: 6px; background: #fff;
+      color: #1a202c;
+    }
+    #edit-panel textarea { resize: vertical; min-height: 80px; }
+    .warning {
+      margin-top: 6px; padding: 8px 10px; background: #fff8e6;
+      border: 1px solid #f0d78c; border-radius: 6px; color: #8a6116; font-size: 13px;
+    }
     #poster { width: 100%; border-radius: 8px; border: 1px solid var(--line); display: block; margin-bottom: 16px; }
     .caption-box {
       white-space: pre-wrap; font-size: 14px; padding: 12px 14px; background: #f6f7f9;
@@ -88,6 +103,7 @@
 
         <label>Caption</label>
         <div id="caption" class="caption-box"></div>
+        <div id="edit-warning" class="warning hidden"></div>
 
         <label>Hashtags</label>
         <div id="hashtags" class="tags"></div>
@@ -97,7 +113,27 @@
 
         <div class="btn-row">
           <button id="skip-btn" class="btn-skip" type="button">Skip</button>
+          <button id="edit-btn" class="btn-edit" type="button">Edit</button>
           <button id="approve-btn" class="btn-approve" type="button">Approve &amp; Post</button>
+        </div>
+
+        <div id="edit-panel" class="hidden">
+          <label>Caption</label>
+          <textarea id="edit-caption"></textarea>
+
+          <label>Price</label>
+          <input id="edit-price" type="text" />
+
+          <label>Location</label>
+          <input id="edit-location" type="text" />
+
+          <label>Features</label>
+          <input id="edit-features" type="text" />
+
+          <div class="btn-row">
+            <button id="cancel-btn" class="btn-cancel" type="button">Cancel</button>
+            <button id="save-btn" class="btn-save" type="button">Save</button>
+          </div>
         </div>
       </div>
 
@@ -116,9 +152,24 @@
     const statusBox = document.getElementById("status");
     const approveBtn = document.getElementById("approve-btn");
     const skipBtn = document.getElementById("skip-btn");
+    const editBtn = document.getElementById("edit-btn");
+    const editPanel = document.getElementById("edit-panel");
+    const editCaption = document.getElementById("edit-caption");
+    const editPrice = document.getElementById("edit-price");
+    const editLocation = document.getElementById("edit-location");
+    const editFeatures = document.getElementById("edit-features");
+    const editWarning = document.getElementById("edit-warning");
+    const cancelBtn = document.getElementById("cancel-btn");
+    const saveBtn = document.getElementById("save-btn");
 
-    // Everything /publish-post needs for the listing currently on screen.
+    // Everything /publish-post needs for the listing currently on screen, plus
+    // the plain-text fields (price/address/features/photo_filename) an Edit
+    // needs to prefill its form and to regenerate the poster on Save.
     let current = null;
+
+    // The caption's value at the moment Edit was opened, so Save can tell
+    // whether the human touched it (used for the stale-caption warning).
+    let captionAtOpen = null;
 
     function showStatus(className, html) {
       statusBox.className = className;
@@ -132,33 +183,44 @@
     function setButtonsDisabled(disabled) {
       approveBtn.disabled = disabled;
       skipBtn.disabled = disabled;
+      editBtn.disabled = disabled;
     }
 
-    function renderListing(payload) {
+    // Repaints the card's read-only display fields from `current`. Shared by
+    // the initial render and by Save, so an edit is reflected the same way a
+    // freshly-loaded candidate is.
+    function updateDisplayFields() {
       document.getElementById("listing-heading").textContent =
-        `${payload.condo_name} — ${payload.features.split(",")[0] || ""}`;
-      document.getElementById("listing-address").textContent = payload.address;
-      document.getElementById("listing-price").textContent = payload.price;
-      document.getElementById("listing-features").textContent = payload.features;
+        `${current.condo_name} — ${(current.features || "").split(",")[0] || ""}`;
+      document.getElementById("listing-address").textContent = current.address;
+      document.getElementById("listing-price").textContent = current.price;
+      document.getElementById("listing-features").textContent = current.features;
 
       document.getElementById("poster").src =
-        "data:image/png;base64," + payload.poster_base64;
+        "data:image/png;base64," + current.poster_base64;
 
-      document.getElementById("caption").textContent = payload.caption || "";
+      document.getElementById("caption").textContent = current.caption || "";
 
       const tagBox = document.getElementById("hashtags");
       tagBox.innerHTML = "";
-      (payload.hashtags || []).forEach((tag) => {
+      (current.hashtags || []).forEach((tag) => {
         const span = document.createElement("span");
         span.className = "tag";
         span.textContent = "#" + tag;
         tagBox.appendChild(span);
       });
 
-      document.getElementById("cta").textContent = payload.cta || "";
+      document.getElementById("cta").textContent = current.cta || "";
+    }
 
+    function renderListing(payload) {
       current = {
         row_index: payload.row_index,
+        condo_name: payload.condo_name,
+        price: payload.price,
+        address: payload.address,
+        features: payload.features,
+        photo_filename: payload.photo_filename || null,
         poster_base64: payload.poster_base64,
         caption: payload.caption || "",
         hashtags: payload.hashtags || [],
@@ -166,6 +228,11 @@
         style_tag: payload.style_tag || null,
         template_id: payload.template_id || null,
       };
+
+      updateDisplayFields();
+
+      editPanel.classList.add("hidden");
+      editWarning.classList.add("hidden");
 
       placeholder.classList.add("hidden");
       empty.classList.add("hidden");
@@ -212,6 +279,98 @@
     skipBtn.addEventListener("click", () => {
       if (!current) return;
       loadNext(current.row_index);
+    });
+
+    editBtn.addEventListener("click", () => {
+      if (!current) return;
+      clearStatus();
+      editWarning.classList.add("hidden");
+
+      captionAtOpen = current.caption || "";
+      editCaption.value = captionAtOpen;
+      editPrice.value = current.price || "";
+      editLocation.value = current.address || "";
+      editFeatures.value = current.features || "";
+
+      approveBtn.disabled = true;
+      skipBtn.disabled = true;
+      editBtn.disabled = true;
+      editPanel.classList.remove("hidden");
+    });
+
+    cancelBtn.addEventListener("click", () => {
+      editPanel.classList.add("hidden");
+      editWarning.classList.add("hidden");
+      setButtonsDisabled(false);
+    });
+
+    saveBtn.addEventListener("click", async () => {
+      if (!current) return;
+      clearStatus();
+      editWarning.classList.add("hidden");
+
+      const newCaption = editCaption.value;
+      const newPrice = editPrice.value.trim();
+      const newLocation = editLocation.value.trim();
+      const newFeatures = editFeatures.value.trim();
+
+      const priceChanged = newPrice !== (current.price || "");
+      const locationChanged = newLocation !== (current.address || "");
+      const featuresChanged = newFeatures !== (current.features || "");
+      const posterFieldsChanged = priceChanged || locationChanged || featuresChanged;
+      const captionChanged = newCaption !== captionAtOpen;
+
+      saveBtn.disabled = true;
+      cancelBtn.disabled = true;
+      saveBtn.textContent = "Saving…";
+
+      try {
+        if (posterFieldsChanged) {
+          const resp = await fetch("/regenerate-poster", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              photo_filename: current.photo_filename,
+              price: newPrice,
+              location: newLocation,
+              features: newFeatures,
+              style_tag: current.style_tag,
+            }),
+          });
+          const payload = await resp.json().catch(() => ({}));
+          if (!resp.ok) {
+            showStatus("error", payload.detail || `Regenerating the poster failed (HTTP ${resp.status}).`);
+            return; // Edit panel stays open, inputs untouched, nothing saved.
+          }
+          current.poster_base64 = payload.poster_base64;
+        }
+
+        current.caption = newCaption;
+        current.price = newPrice;
+        current.address = newLocation;
+        current.features = newFeatures;
+
+        updateDisplayFields();
+
+        // Price changed but the caption wasn't touched - flag it for a human
+        // to double check, without blocking Save or Approve & Post.
+        if (priceChanged && !captionChanged) {
+          editWarning.textContent = "Price changed — check the caption still matches.";
+          editWarning.classList.remove("hidden");
+        }
+
+        editPanel.classList.add("hidden");
+        // Only re-enable Skip/Approve/Edit once the edit panel actually
+        // closes - on the early-return error path above it stays open, so
+        // those three stay disabled until the human saves again or cancels.
+        setButtonsDisabled(false);
+      } catch (err) {
+        showStatus("error", "Could not reach the server. Is the backend running?");
+      } finally {
+        saveBtn.disabled = false;
+        cancelBtn.disabled = false;
+        saveBtn.textContent = "Save";
+      }
     });
 
     approveBtn.addEventListener("click", async () => {

@@ -71,7 +71,12 @@ from app.poster_generator import GRID_TEMPLATE_MIN_PHOTOS, check_photos, generat
 from app.copy_generator import STYLE_TAGS, CaptionError, generate_caption
 from app.lead_chatbot import ChatError, qualify_lead
 from app.trend_research import research_trend
-from app.listings_source import get_listing, next_unposted_listing, random_pool_photo
+from app.listings_source import (
+    PHOTO_POOL_DIR,
+    get_listing,
+    next_unposted_listing,
+    random_pool_photo,
+)
 from app.facebook_publisher import (
     FacebookPublishError,
     get_post_engagement,
@@ -734,7 +739,95 @@ def auto_create_post_endpoint(
         "trend_used": trend_context is not None,
         "trend_context": trend_context,
         "poster_base64": poster_base64,
+        # The demo photo actually used, so an edit to price/location/features
+        # can ask /regenerate-poster to redraw the same photo with new text
+        # instead of picking a different one at random.
+        "photo_filename": Path(photo_path).name,
     }
+
+
+@app.post("/regenerate-poster")
+# `def`, not `async def` - same reasoning as /auto-create-post: generate_poster()
+# is blocking Pillow work, so this needs FastAPI's threadpool.
+def regenerate_poster_endpoint(payload: dict = Body(...)):
+    """
+    Redraw the auto-flow's poster text overlay with edited price/location/
+    features, reusing the exact demo photo /auto-create-post already picked.
+
+    Send JSON:
+
+        {
+          "photo_filename": "unit_012.jpg",  # from /auto-create-post's response
+          "price": "RM 1,200",
+          "location": "Mont Kiara, Kuala Lumpur",
+          "features": "Master, Queen bed, Private bathroom",
+          "style_tag": "Warm"                # optional - from /auto-create-post
+        }
+
+    This is the dashboard Edit step's Save action for price/location/features:
+    those three are Pillow-drawn pixels, not separate text fields, so changing
+    them means calling generate_poster() again rather than editing a string.
+    Caption edits don't come through here at all - they're a plain string swap
+    the dashboard makes directly, no regeneration needed.
+
+    `photo_filename` must be a bare filename that exists in the demo photo pool
+    (assets/listings/unit_photos/) - it never touches arbitrary paths on disk.
+    Returns `{"poster_base64": "<base64 PNG bytes>"}`.
+    """
+    photo_filename = payload.get("photo_filename")
+    if not isinstance(photo_filename, str) or not photo_filename.strip():
+        raise HTTPException(status_code=400, detail="'photo_filename' is required.")
+
+    # Bare filename only - no path separators, so this can't escape
+    # PHOTO_POOL_DIR regardless of what a client sends.
+    if photo_filename != Path(photo_filename).name:
+        raise HTTPException(status_code=400, detail="'photo_filename' is invalid.")
+
+    photo_path = PHOTO_POOL_DIR / photo_filename
+    try:
+        photo_path.resolve().relative_to(PHOTO_POOL_DIR.resolve())
+    except ValueError:
+        raise HTTPException(status_code=400, detail="'photo_filename' is invalid.")
+
+    if not photo_path.is_file():
+        raise HTTPException(status_code=404, detail="That demo photo no longer exists.")
+
+    price = _require_text(payload.get("price"), "price")
+    location = _require_text(payload.get("location"), "location")
+
+    features = payload.get("features")
+    if features is not None and not isinstance(features, str):
+        raise HTTPException(status_code=400, detail="'features' must be a string.")
+
+    style_tag = payload.get("style_tag")
+    if style_tag is not None and not isinstance(style_tag, str):
+        raise HTTPException(status_code=400, detail="'style_tag' must be a string.")
+
+    usable_paths = _usable_photos([str(photo_path)])
+
+    UPLOAD_ROOT.mkdir(parents=True, exist_ok=True)
+    job_dir = Path(tempfile.mkdtemp(prefix="regen_", dir=UPLOAD_ROOT))
+    try:
+        output_path = job_dir / f"poster_{uuid.uuid4().hex[:8]}.png"
+        try:
+            generate_poster(
+                photos=usable_paths,
+                price=price,
+                location=location,
+                bedrooms=0,
+                bathrooms=0,
+                output_path=str(output_path),
+                style_tag=style_tag,
+                details=features or "",
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+
+        poster_base64 = base64.b64encode(output_path.read_bytes()).decode("ascii")
+    finally:
+        shutil.rmtree(job_dir, ignore_errors=True)
+
+    return {"poster_base64": poster_base64}
 
 
 def _build_fb_message(caption: str | None, hashtags: list | None, cta: str | None) -> str:

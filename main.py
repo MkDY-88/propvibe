@@ -15,6 +15,7 @@ Endpoints:
   GET  /listing-info/{tracking_id} - the listing behind a tracking link, as JSON
   POST /chat          - AI leasing assistant for a lead on the listing page
   POST /sync-engagement - refreshes engagement stats (requires X-Sync-Secret header)
+  GET  /internal-dashboard - internal read-only sales-flow view (secret-gated)
 """
 
 import base64
@@ -31,7 +32,17 @@ from urllib.parse import quote
 
 import httpx
 from dotenv import load_dotenv
-from fastapi import Body, FastAPI, File, Form, Header, HTTPException, Query, UploadFile
+from fastapi import (
+    Body,
+    Cookie,
+    FastAPI,
+    File,
+    Form,
+    Header,
+    HTTPException,
+    Query,
+    UploadFile,
+)
 from fastapi.responses import FileResponse, RedirectResponse, Response
 from starlette.background import BackgroundTask
 
@@ -112,6 +123,7 @@ from app.airtable_client import (
     save_cached_photo_condition,
     upsert_lead_record,
 )
+from app.internal_dashboard import collect_dashboard_data
 
 logger = logging.getLogger("propvibe.main")
 
@@ -1601,3 +1613,120 @@ def sync_engagement_endpoint(x_sync_secret: str | None = Header(default=None)):
         summary["details"].append(detail)
 
     return summary
+
+
+# ---------------------------------------------------------------------------
+# Internal dashboard - read-only, shared-secret gated
+# ---------------------------------------------------------------------------
+#
+# Same auth shape as /sync-engagement (a shared secret from the environment,
+# compared in constant time, failing closed when unset), widened just enough to
+# be usable from a browser: the secret may arrive as the X-Internal-Secret
+# header (curl, tests), as ?secret= (the login form), or as the cookie the
+# first successful load sets so refreshes work without the query string.
+#
+# READ-ONLY: both handlers only call collect_dashboard_data(), which reads
+# Airtable and never writes - see app/internal_dashboard.py.
+
+# Name of the cookie the login flow sets so a human isn't retyping the secret
+# on every page load. Scoped to the dashboard's own path so it is never sent to
+# the public routes.
+INTERNAL_DASHBOARD_COOKIE = "internal_dashboard_secret"
+
+# How long that cookie survives. Short by design - it holds the shared secret.
+INTERNAL_DASHBOARD_COOKIE_MAX_AGE = 12 * 60 * 60  # 12 hours
+
+
+def _internal_secret_ok(*candidates: str | None) -> bool:
+    """
+    True if any of ``candidates`` is the configured internal dashboard secret.
+
+    The secret lives in the INTERNAL_DASHBOARD_SECRET env var (set on Railway;
+    never in code). Compared with ``compare_digest`` so a wrong guess can't be
+    narrowed down by timing.
+
+    Raises:
+        HTTPException(503): if the env var isn't set. Fails closed - an
+            unconfigured secret must never read as "no auth required", exactly
+            as in /sync-engagement.
+    """
+    expected = os.environ.get("INTERNAL_DASHBOARD_SECRET")
+    if not expected:
+        raise HTTPException(
+            status_code=503, detail="INTERNAL_DASHBOARD_SECRET is not configured"
+        )
+
+    for candidate in candidates:
+        # .encode() because compare_digest rejects str containing non-ASCII.
+        if candidate and secrets.compare_digest(candidate.encode(), expected.encode()):
+            return True
+    return False
+
+
+def _set_internal_cookie(response, secret: str) -> None:
+    """Remember a valid secret for this browser, scoped to the dashboard path."""
+    response.set_cookie(
+        INTERNAL_DASHBOARD_COOKIE,
+        secret,
+        max_age=INTERNAL_DASHBOARD_COOKIE_MAX_AGE,
+        httponly=True,
+        samesite="lax",
+        path="/internal-dashboard",
+        # Only mark it Secure when this server is actually served over TLS,
+        # otherwise the cookie would be silently dropped in local http testing.
+        secure=_base_url().startswith("https://"),
+    )
+
+
+@app.get("/internal-dashboard")
+def internal_dashboard_page(
+    x_internal_secret: str | None = Header(default=None),
+    secret: str | None = Query(default=None),
+    internal_dashboard_secret: str | None = Cookie(default=None),
+):
+    """
+    The internal sales-flow dashboard page (HTML shell only - no data).
+
+    Wrong or missing secret returns 401 with a small login form and nothing
+    else: the page carries no records of its own, so a rejected request leaks
+    neither post, engagement nor lead data. The form re-requests this URL with
+    ``?secret=``; on success we set the dashboard cookie and the page strips the
+    query string back out of the address bar.
+    """
+    if not _internal_secret_ok(x_internal_secret, secret, internal_dashboard_secret):
+        login = STATIC_DIR / "internal_dashboard_login.html"
+        if not login.exists():
+            raise HTTPException(status_code=401, detail="Invalid internal dashboard secret")
+        return FileResponse(login, media_type="text/html", status_code=401)
+
+    page = STATIC_DIR / "internal_dashboard.html"
+    if not page.exists():
+        raise HTTPException(status_code=404, detail="Internal dashboard page not found.")
+
+    response = FileResponse(page, media_type="text/html")
+    # Whichever way the caller proved themselves, hand the browser a cookie so
+    # the data fetch and any refresh work without the secret in the URL.
+    _set_internal_cookie(
+        response, x_internal_secret or secret or internal_dashboard_secret or ""
+    )
+    return response
+
+
+@app.get("/internal-dashboard/data")
+def internal_dashboard_data(
+    x_internal_secret: str | None = Header(default=None),
+    secret: str | None = Query(default=None),
+    internal_dashboard_secret: str | None = Cookie(default=None),
+):
+    """
+    The dashboard's read-only snapshot as JSON: posts, engagement, styles, leads.
+
+    Same gate as the page, but a rejected request gets a plain 401 JSON error
+    (no records) rather than a login form - this is only ever called by fetch().
+    """
+    if not _internal_secret_ok(x_internal_secret, secret, internal_dashboard_secret):
+        raise HTTPException(
+            status_code=401, detail="Missing or invalid X-Internal-Secret"
+        )
+
+    return collect_dashboard_data()

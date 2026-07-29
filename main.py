@@ -69,13 +69,15 @@ except ImportError:
 # namespace and cannot shadow the `app = FastAPI()` instance below.
 from app.poster_generator import GRID_TEMPLATE_MIN_PHOTOS, check_photos, generate_poster
 from app.copy_generator import STYLE_TAGS, CaptionError, generate_caption
-from app.lead_chatbot import ChatError, qualify_lead
+from app.lead_chatbot import ChatError, extract_search_intent, qualify_lead
 from app.trend_research import research_trend
 from app.listings_source import (
     PHOTO_POOL_DIR,
+    Listing,
     get_listing,
     next_unposted_listing,
     random_pool_photo,
+    search_listings,
 )
 from app.facebook_publisher import (
     FacebookPublishError,
@@ -221,6 +223,17 @@ def _listing_context(tracking_id: str) -> dict | None:
     if listing is None:
         return None
 
+    return _listing_to_context(listing)
+
+
+def _listing_to_context(listing: Listing) -> dict:
+    """
+    A Listing as the plain dict the chatbot and the landing page consume.
+
+    One definition of that shape, used for the property a lead clicked through
+    for AND for any alternatives we search up in /chat, so the assistant can
+    never be handed two differently-shaped listings.
+    """
     return {
         "condo_name": listing.condo_name,
         "price": listing.price,
@@ -1059,6 +1072,41 @@ def _build_transcript(history: list, message: str, reply: str) -> str:
     return "\n".join(lines)
 
 
+# How many alternatives to put in front of the assistant. It is told to name at
+# most a couple; a few spares let it pick the ones that actually fit what they
+# asked, without turning the reply into a list.
+MAX_ALTERNATIVES = 4
+
+
+def _alternatives_for(tracking_id: str, history: list, message: str) -> list[dict] | None:
+    """
+    Real listings to offer this lead, or None if they aren't asking for any.
+
+    Two steps: a cheap Claude call reads the message for "got anything else?"
+    plus any budget/area/room-type they named, then we search the CSV for it.
+    The property they are already looking at is excluded, so it can never come
+    back as its own alternative.
+
+    Returns None when they aren't asking - including when the intent call
+    failed and degraded to its safe default - which leaves the chat turn
+    exactly as it behaved before. An empty list is different and deliberate: it
+    means they DID ask and nothing matched, and the assistant says so rather
+    than inventing something.
+    """
+    intent = extract_search_intent(history, message)
+    if not intent["wants_alternatives"]:
+        return None
+
+    matches = search_listings(
+        max_price=intent["max_price"],
+        location_keyword=intent["location_keyword"],
+        room_type_keyword=intent["room_type_keyword"],
+        exclude_row_index=get_tracking_row_index(tracking_id),
+        limit=MAX_ALTERNATIVES,
+    )
+    return [_listing_to_context(listing) for listing in matches]
+
+
 @app.post("/chat")
 # `def`, not `async def` - same reasoning as /create-post: the Claude call and
 # the Airtable read/write are blocking and there is no `await` here, so as an
@@ -1078,6 +1126,12 @@ def chat_endpoint(payload: dict = Body(...)):
     We resolve which listing the tracking id was published for (same lookup as
     /listing-info) and hand that context to the assistant so it can talk about
     the actual property; an unknown id just means it stays general.
+
+    If the message reads like they're asking what ELSE is available, we also
+    search room_listings.csv for real alternatives - on whatever budget, area
+    or room type they mentioned, minus the property they're already on - and
+    pass those in too, so the assistant offers listings that genuinely exist
+    instead of improvising. See _alternatives_for.
 
     Alongside the reply, the assistant reports a qualification `status` and
     what it has picked up about the lead's budget and move-in timeline. The
@@ -1106,9 +1160,10 @@ def chat_endpoint(payload: dict = Body(...)):
         raise HTTPException(status_code=400, detail="'history' must be a list.")
 
     listing_context = _listing_context(tracking_id)
+    other_listings = _alternatives_for(tracking_id, history, message)
 
     try:
-        result = qualify_lead(history, message, listing_context)
+        result = qualify_lead(history, message, listing_context, other_listings)
     except ChatError as exc:
         raise HTTPException(status_code=502, detail=str(exc))
 

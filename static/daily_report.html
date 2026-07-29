@@ -1,0 +1,301 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="robots" content="noindex, nofollow" />
+  <title>PropVibe - End-of-Day Report</title>
+  <style>
+    /* ---- PropVibe shared design system (keep identical across pages) ---- */
+    :root {
+      --navy: #1a2b4c; --navy-deep: #14213a; --navy-soft: #24365c;
+      --gold: #d4af37; --gold-tint: #fbf7e8;
+      --gray: #4a5568; --line: #e2e8f0; --ink: #1a202c;
+      --bg: #f6f7f9; --card: #ffffff; --chip: #eef1f6; --faint: #94a3b8;
+      --radius: 10px; --radius-sm: 6px;
+      --shadow-sm: 0 1px 3px rgba(26, 43, 76, 0.08);
+      --shadow-md: 0 10px 30px rgba(26, 43, 76, 0.08);
+      --shadow-lift: 0 8px 20px rgba(26, 43, 76, 0.16);
+      --ease: cubic-bezier(0.33, 1, 0.68, 1);
+      --dur-fast: 0.16s; --dur: 0.3s; --dur-slow: 0.55s;
+    }
+    * { box-sizing: border-box; }
+    @keyframes pv-fade-up { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } }
+    @keyframes pv-fade-in { from { opacity: 0; } to { opacity: 1; } }
+    @keyframes pv-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.45; } }
+    @keyframes pv-spin { to { transform: rotate(360deg); } }
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after {
+        animation-duration: 0.01ms !important; animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+      }
+    }
+    .site-nav {
+      background: var(--navy-deep); border-bottom: 3px solid var(--gold);
+      display: flex; align-items: center; justify-content: space-between;
+      flex-wrap: wrap; gap: 8px 16px; padding: 13px 24px;
+    }
+    .site-nav .brand {
+      color: #fff; font-weight: 700; font-size: 17px; letter-spacing: 0.02em;
+      text-decoration: none;
+    }
+    .site-nav .brand span { color: var(--gold); }
+    .site-nav-links { display: flex; flex-wrap: wrap; gap: 4px; }
+    .site-nav-links a {
+      color: rgba(255, 255, 255, 0.82); text-decoration: none; font-size: 13px;
+      font-weight: 600; padding: 7px 12px; border-radius: 999px;
+      transition: background var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease);
+    }
+    .site-nav-links a:hover { background: rgba(255, 255, 255, 0.14); color: #fff; }
+    .site-nav-links a[aria-current="page"] { background: var(--gold); color: var(--navy-deep); }
+    .page-head {
+      background: linear-gradient(135deg, var(--navy) 0%, var(--navy-soft) 100%);
+      color: #fff; padding: 20px 24px;
+    }
+    .page-head h1 { margin: 0; font-size: 20px; }
+    .page-head p { margin: 4px 0 0; font-size: 13px; opacity: 0.8; }
+    /* ---- end shared design system ---- */
+
+    body {
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      margin: 0; background: var(--bg); color: var(--ink); line-height: 1.5;
+    }
+    main { max-width: 780px; margin: 0 auto; padding: 24px; animation: pv-fade-up var(--dur-slow) var(--ease) both; }
+    section { margin-bottom: 28px; }
+    .card {
+      background: var(--card); border: 1px solid var(--line); border-radius: var(--radius);
+      padding: 20px; box-shadow: var(--shadow-sm);
+    }
+    h2 {
+      font-size: 15px; text-transform: uppercase; letter-spacing: 0.04em;
+      color: var(--gray); margin: 0 0 4px;
+    }
+    .section-note { margin: 0 0 16px; font-size: 13px; color: var(--gray); }
+
+    /* Stat tiles */
+    .tiles {
+      display: grid; gap: 12px; margin-bottom: 28px;
+      grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    }
+    .tile {
+      background: var(--card); border: 1px solid var(--line); border-radius: var(--radius);
+      padding: 16px 18px; box-shadow: var(--shadow-sm);
+      animation: pv-fade-up var(--dur) var(--ease) both;
+      transition: box-shadow var(--dur-fast) var(--ease), transform var(--dur-fast) var(--ease);
+    }
+    .tile:hover { box-shadow: var(--shadow-lift); transform: translateY(-1px); }
+    .tile:nth-child(2) { animation-delay: 0.05s; }
+    .tile:nth-child(3) { animation-delay: 0.1s; }
+    .tile:nth-child(4) { animation-delay: 0.15s; }
+    .tile .label {
+      font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em;
+      color: var(--gray); font-weight: 600;
+    }
+    .tile .value { font-size: 28px; font-weight: 700; color: var(--navy); margin-top: 2px; }
+    .tile .value.small { font-size: 20px; }
+    .tile.highlight { border-color: var(--gold); background: var(--gold-tint); }
+
+    /* Style table */
+    .table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+    table { border-collapse: collapse; width: 100%; font-size: 13px; }
+    tbody tr { animation: pv-fade-in 0.35s var(--ease) both; transition: background var(--dur-fast) var(--ease); }
+    th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--line); }
+    th {
+      font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em;
+      color: var(--gray); background: var(--bg);
+    }
+    tbody tr:hover { background: #fafbfc; }
+    td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+    tr.winner { background: var(--gold-tint); }
+    tr.winner:hover { background: var(--gold-tint); }
+    .tag {
+      display: inline-block; background: var(--chip); color: var(--navy); font-size: 12px;
+      font-weight: 600; padding: 3px 9px; border-radius: 999px;
+    }
+    .tag-best { background: var(--gold-tint); border: 1px solid var(--gold); }
+
+    /* AI summary prose */
+    #summary { font-size: 15px; }
+    #summary p { margin: 0 0 14px; animation: pv-fade-up var(--dur) var(--ease) both; }
+    #summary p:last-child { margin-bottom: 0; }
+    .summary-fallback { color: var(--gray); font-style: italic; }
+
+    .error {
+      margin-bottom: 16px; padding: 12px 14px; background: #fdecec;
+      border: 1px solid #f5b5b5; border-radius: var(--radius-sm); color: #9b1c1c; font-size: 13px;
+      animation: pv-fade-up var(--dur) var(--ease) both;
+    }
+    .empty { color: var(--gray); font-size: 13px; padding: 18px 0; text-align: center; }
+    .hidden { display: none; }
+    #loading { color: var(--gray); font-size: 14px; padding: 40px 12px; text-align: center; }
+    #loading::before {
+      content: ""; display: block; width: 28px; height: 28px; margin: 0 auto 14px;
+      border-radius: 50%; border: 3px solid var(--chip); border-top-color: var(--gold);
+      animation: pv-spin 0.8s linear infinite;
+    }
+    footer { color: var(--gray); font-size: 12px; padding: 0 24px 28px; text-align: center; }
+  </style>
+</head>
+<body>
+  <nav class="site-nav">
+    <a class="brand" href="/">Prop<span>Vibe</span></a>
+    <div class="site-nav-links">
+      <a href="/">Home</a>
+      <a href="/dashboard">Dashboard</a>
+      <a href="/listing">Listing</a>
+      <a href="/internal-dashboard">Internal</a>
+      <a href="/report" aria-current="page">Report</a>
+      <a href="/privacy">Privacy</a>
+    </div>
+  </nav>
+
+  <header class="page-head">
+    <h1>End-of-Day Report</h1>
+    <p>What the self-learning loop did today: posts, styles, and what it learned.</p>
+  </header>
+
+  <main>
+    <p id="loading">Assembling today's numbers and writing the report&hellip;</p>
+
+    <div id="content" class="hidden">
+      <div id="errors"></div>
+
+      <div class="tiles" id="tiles"></div>
+
+      <section>
+        <div class="card">
+          <h2>Style performance</h2>
+          <p class="section-note">
+            Posts written per caption style, and each style's average engagement
+            (clicks + likes + comments) from synced data. The gold row is the style
+            the system currently leans toward.
+          </p>
+          <div class="table-wrap"><table id="styles-table"></table></div>
+          <p class="empty hidden" id="styles-empty">No posts recorded yet.</p>
+        </div>
+      </section>
+
+      <section>
+        <div class="card">
+          <h2>Today's report</h2>
+          <p class="section-note">Written by Claude from the real numbers above - nothing invented.</p>
+          <div id="summary"></div>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <footer>PropVibe &middot; read-only report &middot; refresh the page for the latest numbers</footer>
+
+  <script>
+    function el(tag, className, text) {
+      const node = document.createElement(tag);
+      if (className) node.className = className;
+      if (text !== undefined) node.textContent = text;
+      return node;
+    }
+
+    function tile(label, value, highlight) {
+      const node = el('div', 'tile' + (highlight ? ' highlight' : ''));
+      node.appendChild(el('div', 'label', label));
+      const valueNode = el('div', 'value' + (String(value).length > 6 ? ' small' : ''), String(value));
+      node.appendChild(valueNode);
+      return node;
+    }
+
+    function renderTiles(data) {
+      const tiles = document.getElementById('tiles');
+      tiles.appendChild(tile('Date', data.date));
+      tiles.appendChild(tile('Posts published', data.total_posts));
+      tiles.appendChild(tile('Styles in play', Object.keys(data.style_distribution).length));
+      tiles.appendChild(tile('Winning style', data.winning_style || 'No data yet', Boolean(data.winning_style)));
+    }
+
+    function renderStyles(data) {
+      const table = document.getElementById('styles-table');
+      const styles = [...new Set([
+        ...Object.keys(data.style_distribution),
+        ...Object.keys(data.style_performance),
+      ])];
+      if (!styles.length) {
+        table.classList.add('hidden');
+        document.getElementById('styles-empty').classList.remove('hidden');
+        return;
+      }
+
+      const head = table.createTHead().insertRow();
+      ['Style', 'Posts', 'Avg engagement', ''].forEach(function (label, index) {
+        const th = document.createElement('th');
+        th.textContent = label;
+        if (index === 1 || index === 2) th.className = 'num';
+        head.appendChild(th);
+      });
+
+      // Winner first, then by average engagement, then by post count.
+      styles.sort(function (a, b) {
+        if (a === data.winning_style) return -1;
+        if (b === data.winning_style) return 1;
+        const byAvg = (data.style_performance[b] || 0) - (data.style_performance[a] || 0);
+        if (byAvg) return byAvg;
+        return (data.style_distribution[b] || 0) - (data.style_distribution[a] || 0);
+      });
+
+      const body = table.createTBody();
+      styles.forEach(function (style) {
+        const isWinner = style === data.winning_style;
+        const row = body.insertRow();
+        if (isWinner) row.className = 'winner';
+        row.insertCell().textContent = style;
+        const posts = row.insertCell();
+        posts.className = 'num';
+        posts.textContent = String(data.style_distribution[style] || 0);
+        const avg = row.insertCell();
+        avg.className = 'num';
+        const value = data.style_performance[style];
+        avg.textContent = value === undefined ? 'no data yet' : value.toFixed(1);
+        const badge = row.insertCell();
+        if (isWinner) badge.appendChild(el('span', 'tag tag-best', 'Winning'));
+      });
+    }
+
+    function renderSummary(payload) {
+      const summary = document.getElementById('summary');
+      const fallback = Boolean(payload.summary_error);
+      String(payload.summary || '').split(/\n\s*\n/).forEach(function (paragraph) {
+        if (paragraph.trim()) {
+          summary.appendChild(el('p', fallback ? 'summary-fallback' : '', paragraph.trim()));
+        }
+      });
+      if (fallback) {
+        const errors = document.getElementById('errors');
+        errors.appendChild(el('div', 'error', 'AI summary failed: ' + payload.summary_error));
+      }
+    }
+
+    function renderErrors(data) {
+      const errors = document.getElementById('errors');
+      (data.errors || []).forEach(function (message) {
+        errors.appendChild(el('div', 'error', message));
+      });
+    }
+
+    fetch('/daily-report')
+      .then(function (response) {
+        if (!response.ok) throw new Error('The server returned HTTP ' + response.status + '.');
+        return response.json();
+      })
+      .then(function (payload) {
+        document.getElementById('loading').classList.add('hidden');
+        document.getElementById('content').classList.remove('hidden');
+        renderErrors(payload.data);
+        renderTiles(payload.data);
+        renderStyles(payload.data);
+        renderSummary(payload);
+      })
+      .catch(function (error) {
+        const loading = document.getElementById('loading');
+        loading.textContent = 'Could not load the report: ' + error.message;
+      });
+  </script>
+</body>
+</html>

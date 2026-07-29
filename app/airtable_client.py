@@ -828,6 +828,33 @@ def get_style_performance() -> dict[str, float]:
     }
 
 
+def best_performing_style(performance: dict[str, float] | None = None) -> str | None:
+    """
+    The current best-performing caption style, or None if we can't tell yet.
+
+    This is THE rule for "which style is winning" - the caption hint in
+    /create-post and the daily report both call it, so they can never disagree
+    on the winner. Pass ``performance`` (a get_style_performance() result) to
+    rank an already-fetched dict without a second Airtable read; omit it to
+    fetch fresh.
+
+    Only ever a hint, so it must never break a caller: any problem (Airtable
+    unconfigured, API error, no data yet) yields None and callers fall back to
+    a random style / "no winner yet". get_style_performance already degrades
+    to {} on failure; the broad guard here is belt-and-braces.
+    """
+    if performance is None:
+        try:
+            performance = get_style_performance()
+        except Exception as exc:  # noqa: BLE001 - a hint must never crash the caller
+            logger.warning("Could not read style performance for the winner: %s", exc)
+            return None
+
+    if not performance:
+        return None
+    return max(performance, key=performance.get)
+
+
 def get_photo_condition_cache_entries(photo_filename: str) -> list[dict]:
     """
     Every cached (time_of_day, weather) edit already generated for this photo.

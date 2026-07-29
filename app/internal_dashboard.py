@@ -203,8 +203,9 @@ def _style_performance() -> dict:
     Calls ``get_style_performance()`` exactly as the caption generator does -
     same function, same numbers, no second implementation to drift from it. The
     winner is ``max`` over those averages, which is the same rule
-    ``_best_performing_style()`` in main.py applies when it picks a style hint,
-    so the dashboard reports the style the app is actually leaning toward.
+    ``airtable_client.best_performing_style()`` applies when /create-post picks
+    a style hint, so the dashboard reports the style the app is actually
+    leaning toward.
     """
     try:
         averages = get_style_performance()

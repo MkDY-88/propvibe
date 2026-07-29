@@ -101,6 +101,18 @@ def _posts_fields() -> dict[str, str]:
         "caption": _env("AIRTABLE_FIELD_CAPTION", "Caption"),
         "facebook_post_id": _env("AIRTABLE_FIELD_FACEBOOK_POST_ID", "Facebook Post ID"),
         "tracking_id": _env("AIRTABLE_FIELD_TRACKING_ID", "Tracking ID"),
+        # Which room_listings.csv row this post came from (auto-ready flow
+        # only; None/absent for posts created via the manual form). This is
+        # what makes "next un-posted listing" durable across Railway redeploys
+        # - see app.listings_source. Requires a Number column named "Listing
+        # Row Index" (or the AIRTABLE_FIELD_LISTING_ROW_INDEX override) to
+        # already exist on the Posts table: like every other field here, an
+        # unrecognised name is dropped with a logged warning rather than
+        # failing the write, but that also means posted-listing tracking
+        # silently does nothing until the column exists.
+        "listing_row_index": _env(
+            "AIRTABLE_FIELD_LISTING_ROW_INDEX", "Listing Row Index"
+        ),
     }
 
 
@@ -387,16 +399,20 @@ def create_post_record(
     caption: str,
     facebook_post_id: str,
     tracking_id: str,
+    listing_row_index: int | None = None,
 ) -> str:
     """
     Create a row in the Posts table for a freshly-published post.
 
     Args:
-        template_id:      Which poster template was used (e.g. "A" / "B").
-        style_tag:        The caption style/tone (e.g. "Modern", "Warm", "Bold").
-        caption:          The caption text that was posted.
-        facebook_post_id: The id Facebook returned for the published post.
-        tracking_id:      The short id embedded in the post's tracking link.
+        template_id:       Which poster template was used (e.g. "A" / "B").
+        style_tag:         The caption style/tone (e.g. "Modern", "Warm", "Bold").
+        caption:           The caption text that was posted.
+        facebook_post_id:  The id Facebook returned for the published post.
+        tracking_id:       The short id embedded in the post's tracking link.
+        listing_row_index: The room_listings.csv row this post came from (auto-
+            ready flow only). None (the default) omits the field entirely, so
+            posts from the manual form are unaffected.
 
     Returns:
         The new Airtable record id (e.g. "recXXXXXXXXXXXXXX").
@@ -412,6 +428,7 @@ def create_post_record(
         names["caption"]: caption,
         names["facebook_post_id"]: facebook_post_id,
         names["tracking_id"]: tracking_id,
+        names["listing_row_index"]: listing_row_index,
     }
     return _create_record(_posts_table(), fields)
 
@@ -449,6 +466,17 @@ def log_engagement(
     return _create_record(_engagement_table(), fields)
 
 
+def _read_int(fields: dict, expected: str, keyword: str) -> int | None:
+    """Like _read_field but coerces to an int, or None if missing/unparseable."""
+    value = _read_field(fields, expected, keyword)
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        return int(float(value))
+    except (TypeError, ValueError):
+        return None
+
+
 def get_posts() -> list[dict]:
     """
     Return every row in the Posts table, normalised for the sync flow.
@@ -456,10 +484,11 @@ def get_posts() -> list[dict]:
     Each item is a dict::
 
         {
-          "record_id":        "recXXXXXXXXXXXXXX",   # Airtable record id
-          "facebook_post_id": "1234_5678" | None,
-          "tracking_id":      "ab12cd34" | None,
-          "style_tag":        "Warm" | None,
+          "record_id":         "recXXXXXXXXXXXXXX",   # Airtable record id
+          "facebook_post_id":  "1234_5678" | None,
+          "tracking_id":       "ab12cd34" | None,
+          "style_tag":         "Warm" | None,
+          "listing_row_index": 17 | None,              # auto-ready posts only
         }
 
     Field values are read defensively (exact name, then case-insensitive, then
@@ -478,12 +507,14 @@ def get_posts() -> list[dict]:
         fb_id = _read_field(fields, names["facebook_post_id"], "facebook")
         tracking = _read_field(fields, names["tracking_id"], "tracking")
         style = _read_field(fields, names["style_tag"], "style")
+        row_index = _read_int(fields, names["listing_row_index"], "row index")
         posts.append(
             {
                 "record_id": record.get("id"),
                 "facebook_post_id": str(fb_id).strip() if fb_id else None,
                 "tracking_id": str(tracking).strip() if tracking else None,
                 "style_tag": str(style).strip() if style else None,
+                "listing_row_index": row_index,
             }
         )
     return posts

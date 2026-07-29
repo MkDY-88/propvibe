@@ -101,14 +101,27 @@ def _build_user_prompt(
     style: str,
     tone_brief: str,
     trend_context: str | None = None,
+    listing_details: str | None = None,
 ) -> str:
     """Assemble the listing details + tone into a single instruction for Claude."""
+    if listing_details:
+        # A listing shape without bedroom/bathroom counts (e.g. a single room
+        # for rent within a shared unit) - replace the count lines entirely so
+        # Claude doesn't describe a room-rental as if it were a whole condo.
+        detail_block = (
+            f"- Room details: {listing_details}\n"
+            "- Note: this is a single room available for rent within a shared "
+            "condo unit, not an entire apartment. Describe it as a room, not a "
+            "whole unit.\n"
+        )
+    else:
+        detail_block = f"- Bedrooms: {bedrooms}\n- Bathrooms: {bathrooms}\n"
+
     prompt = (
         "Write the social media copy for this property listing:\n"
         f"- Price: {price}\n"
         f"- Location: {location}\n"
-        f"- Bedrooms: {bedrooms}\n"
-        f"- Bathrooms: {bathrooms}\n\n"
+        f"{detail_block}\n"
         f"TONE: Write the caption in a {style} style - {tone_brief}.\n"
     )
 
@@ -217,6 +230,7 @@ def generate_caption(
     bathrooms: int,
     preferred_style: str,
     trend_context: str | None = None,
+    listing_details: str | None = None,
 ) -> dict:
     """
     Generate social copy for a listing via Claude Haiku.
@@ -224,8 +238,8 @@ def generate_caption(
     Args:
         price:           Pre-formatted price string, e.g. "RM 450,000".
         location:        Short location line, e.g. "Mont Kiara, Kuala Lumpur".
-        bedrooms:        Number of bedrooms.
-        bathrooms:       Number of bathrooms.
+        bedrooms:        Number of bedrooms. Ignored if `listing_details` given.
+        bathrooms:       Number of bathrooms. Ignored if `listing_details` given.
         preferred_style: The style to write in - a non-empty string. The
             caller (main.py) resolves this once per request, from the current
             best-performing style in Airtable or a random STYLE_TAGS pick when
@@ -236,6 +250,11 @@ def generate_caption(
             hint Claude may reference if it fits naturally. Pass None (the
             default) and the prompt is byte-for-byte what it was before this
             parameter existed.
+        listing_details: Optional free-text override for listing shapes without
+            bedroom/bathroom counts (e.g. a single room-rental listing), e.g.
+            "Master, Queen bed, Private bathroom". Replaces the "Bedrooms: X /
+            Bathrooms: Y" prompt lines entirely. None (the default) keeps the
+            original prompt shape, so existing callers are unaffected.
 
     Returns:
         dict with keys "caption" (str), "hashtags" (list[str], no '#'), "cta"
@@ -276,6 +295,7 @@ def generate_caption(
                         style_tag,
                         tone_brief,
                         trend_context,
+                        listing_details,
                     ),
                 }
             ],

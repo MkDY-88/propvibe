@@ -9,6 +9,7 @@ Endpoints:
   GET  /              - landing page (static HTML)
   GET  /dashboard     - minimal approval/preview page (static HTML)
   GET  /privacy       - privacy policy page (Facebook App Live mode requirement)
+  GET  /business      - business model page (static HTML)
   POST /generate-poster - returns the poster PNG directly
   POST /create-post   - returns poster (base64) + Claude-written caption as JSON
   POST /publish-post  - publishes a poster + caption to a Facebook Page
@@ -211,6 +212,15 @@ def privacy():
     page = STATIC_DIR / "privacy.html"
     if not page.exists():
         raise HTTPException(status_code=404, detail="Privacy policy page not found.")
+    return FileResponse(page, media_type="text/html")
+
+
+@app.get("/business")
+def business():
+    """Serve the business model page."""
+    page = STATIC_DIR / "business.html"
+    if not page.exists():
+        raise HTTPException(status_code=404, detail="Business model page not found.")
     return FileResponse(page, media_type="text/html")
 
 

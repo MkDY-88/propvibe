@@ -6,7 +6,7 @@ plain curl) can post some property photos plus listing details and get a
 ready-to-share 1080x1080 PNG straight back in the response body.
 
 Endpoints:
-  GET  /              - health check
+  GET  /              - landing page (static HTML)
   GET  /dashboard     - minimal approval/preview page (static HTML)
   GET  /privacy       - privacy policy page (Facebook App Live mode requirement)
   POST /generate-poster - returns the poster PNG directly
@@ -172,7 +172,11 @@ def _tracking_url(tracking_id: str) -> str:
 
 @app.get("/")
 def read_root():
-    return {"status": "PropVibe backend is live"}
+    """Serve the PropVibe landing page, same FileResponse pattern as /dashboard."""
+    page = STATIC_DIR / "index.html"
+    if not page.exists():
+        raise HTTPException(status_code=404, detail="Home page not found.")
+    return FileResponse(page, media_type="text/html")
 
 
 @app.get("/dashboard")

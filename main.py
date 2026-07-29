@@ -1362,33 +1362,48 @@ def _build_transcript(history: list, message: str, reply: str) -> str:
 MAX_ALTERNATIVES = 4
 
 
-def _alternatives_for(tracking_id: str, history: list, message: str) -> list[dict] | None:
+def _alternatives_for(tracking_id: str, history: list, message: str) -> dict | None:
     """
     Real listings to offer this lead, or None if they aren't asking for any.
 
-    Two steps: a cheap Claude call reads the message for "got anything else?"
-    plus any budget/area/room-type they named, then we search the CSV for it.
-    The property they are already looking at is excluded, so it can never come
-    back as its own alternative.
+    Two steps: a cheap Claude call reads the whole conversation for "got
+    anything else?" plus every preference they have accumulated - budget, area,
+    room, bed, bathroom, must-have features - then search_listings ranks the
+    CSV against all of it. The property they are already looking at is
+    excluded, so it can never come back as its own alternative.
 
     Returns None when they aren't asking - including when the intent call
     failed and degraded to its safe default - which leaves the chat turn
-    exactly as it behaved before. An empty list is different and deliberate: it
-    means they DID ask and nothing matched, and the assistant says so rather
-    than inventing something.
+    exactly as it behaved before. Otherwise a dict::
+
+        {"listings": [context, ...], "exact": bool, "relaxed_criteria": [...]}
+
+    An empty "listings" is different from None and deliberate: it means they
+    DID ask and nothing matched, and the assistant says so rather than
+    inventing something. "exact" carries search_listings' own verdict through
+    to the assistant untouched - False means these are near misses and it has
+    to say so.
     """
     intent = extract_search_intent(history, message)
     if not intent["wants_alternatives"]:
         return None
 
-    matches = search_listings(
+    result = search_listings(
         max_price=intent["max_price"],
+        target_price=intent["target_price"],
         location_keyword=intent["location_keyword"],
         room_type_keyword=intent["room_type_keyword"],
+        bed_type_keyword=intent["bed_type_keyword"],
+        bathroom_type_keyword=intent["bathroom_type_keyword"],
+        must_have_features=intent["must_have_features"],
         exclude_row_index=get_tracking_row_index(tracking_id),
         limit=MAX_ALTERNATIVES,
     )
-    return [_listing_to_context(listing) for listing in matches]
+    return {
+        "listings": [_listing_to_context(listing) for listing in result],
+        "exact": result.is_exact,
+        "relaxed_criteria": list(result.relaxed_criteria),
+    }
 
 
 @app.post("/chat")
@@ -1411,11 +1426,15 @@ def chat_endpoint(payload: dict = Body(...)):
     /listing-info) and hand that context to the assistant so it can talk about
     the actual property; an unknown id just means it stays general.
 
-    If the message reads like they're asking what ELSE is available, we also
-    search room_listings.csv for real alternatives - on whatever budget, area
-    or room type they mentioned, minus the property they're already on - and
-    pass those in too, so the assistant offers listings that genuinely exist
-    instead of improvising. See _alternatives_for.
+    If the conversation reads like they want to see what ELSE is available (or
+    are following up on something we already offered), we also search
+    room_listings.csv for real alternatives - ranked against every preference
+    they have given across the whole chat, minus the property they're already
+    on - and pass those in too, so the assistant offers listings that genuinely
+    exist instead of improvising. When nothing matches all of it the search
+    loosens the softest criteria and says so, and that "these are near misses"
+    verdict is passed to the assistant rather than dropped. See
+    _alternatives_for.
 
     Alongside the reply, the assistant reports a qualification `status` and
     what it has picked up about the lead's budget and move-in timeline. The
@@ -1444,10 +1463,19 @@ def chat_endpoint(payload: dict = Body(...)):
         raise HTTPException(status_code=400, detail="'history' must be a list.")
 
     listing_context = _listing_context(tracking_id)
-    other_listings = _alternatives_for(tracking_id, history, message)
+    alternatives = _alternatives_for(tracking_id, history, message) or {}
 
     try:
-        result = qualify_lead(history, message, listing_context, other_listings)
+        result = qualify_lead(
+            history,
+            message,
+            listing_context,
+            other_listings=alternatives.get("listings"),
+            # Default True so a turn with no search at all is described
+            # accurately: nothing was loosened because nothing was searched.
+            alternatives_exact=alternatives.get("exact", True),
+            relaxed_criteria=alternatives.get("relaxed_criteria"),
+        )
     except ChatError as exc:
         raise HTTPException(status_code=502, detail=str(exc))
 

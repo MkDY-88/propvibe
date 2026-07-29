@@ -17,14 +17,21 @@ dict::
 
 `status` is deliberately conservative: everyone starts as a "lead" and only
 becomes a "prospect" once the conversation has given real signal on BOTH
-budget fit and move-in timeline. The two *_signal fields are what the caller
-logs to Airtable so a human can see why - they're never shown to the lead.
+budget fit and move-in timeline. That is asked for in the prompt AND enforced
+in `_normalise`, which downgrades any claimed "prospect" that did not come
+with both signals - so the rule holds whether or not the model cooperates.
+The two *_signal fields are what the caller logs to Airtable so a human can
+see why - they're never shown to the lead.
 
-`extract_search_intent()` is the small companion call: it reads the same turn
-and reports whether the lead is asking to see OTHER properties, plus any
-budget/area/room-type hints to search on. The caller uses that to look up real
-alternatives and hand them to `qualify_lead()` as `other_listings`, so "what
-else have you got around this price?" is answered from the actual listing pool
+`extract_search_intent()` is the companion call: it reads the WHOLE
+conversation and reports whether the lead needs to see OTHER properties, plus
+the full set of preferences they have built up - budget, area, room, bed,
+bathroom and must-have features. The filters accumulate rather than resetting
+each turn, so a budget given early still applies to a later message that only
+names an area, and changing their mind about one of them leaves the rest
+standing. The caller feeds that to `listings_source.search_listings()` and
+hands the ranked result to `qualify_lead()` as `other_listings`, so "what else
+have you got around this price?" is answered from the actual listing pool
 instead of from the model's imagination.
 
 Anything that goes wrong in `qualify_lead` - a missing API key, a rate limit, a
@@ -81,16 +88,53 @@ SYSTEM_PROMPT = (
     "same message.\n"
     "- Never pressure, never push for a viewing more than once, and never ask "
     "for their name, phone number or email address - someone else handles "
-    "that later.\n"
-    "- If you don't know a detail about the property, say so plainly and "
-    "offer to find out. Do not invent facts about the unit, the building or "
-    "the neighbourhood.\n\n"
+    "that later.\n\n"
+    "WHAT YOU MAY TELL THEM:\n"
+    "- Each property below is given to you as exactly four things: its name, "
+    "its price, its address, and a features line - the room type, the bed, the "
+    "bathroom, and the parking cost when it has one. All of that is yours to "
+    "share freely, for the main property AND for anything under OTHER "
+    "LISTINGS. When they ask about one of those, just answer with the actual "
+    "detail. Never say you do not have something that is written down below, "
+    "and never make them ask twice for something you were given.\n"
+    "- ANY OTHER ATTRIBUTE, YOU DO NOT HAVE. The floor or unit number, wifi or "
+    "internet, whether it is furnished, air conditioning, the room size, the "
+    "deposit or lease terms, whether bills are included, the gym, pool, "
+    "security or any other facility, when it is available, who else lives "
+    "there - none of that is written below, so you do not know any of it. Say "
+    "in ONE short sentence that you do not have that particular detail, then "
+    "carry on being useful.\n"
+    "- EVERY FACT BELONGS TO ONE LISTING. A detail you state about a property "
+    "must come from THAT property's own lines below. Never carry an attribute "
+    "across from another listing, never assume two rooms in the same building "
+    "match, and never fill a gap with what is typical. If a property's "
+    "features line says nothing about parking, you do not know its parking: do "
+    "NOT tell them it has none, and do NOT quote another property's parking "
+    "cost for it.\n"
+    "- This applies to every property already in the conversation, whether or "
+    "not they are currently asking about other places - the one they clicked "
+    "through for and any alternative you have named.\n"
+    "- Not knowing is a perfectly normal answer, not a failure. Never soften a "
+    "gap into a guess: no ranges, no \"usually\", no \"should be\", no "
+    "\"typically\". A confident, plausible-sounding answer you were not "
+    "actually given is the worst thing you can say.\n"
+    "- NEVER promise a human will follow up. There is no team behind this "
+    "chat, no one to check with, nothing to get back to them about. Do not "
+    'say "I\'ll check with the team", "let me find out", "I\'ll get back to '
+    'you", "I can ask about that" or anything like them, ever. Do not point '
+    'them at "someone who can check" either - you do not know that anyone '
+    "will. What you do not have, you simply do not have.\n"
+    "- If they push back on something you could not answer, do NOT apologise "
+    "again or repeat yourself. Say it once, differently at most, and move the "
+    "conversation forward.\n"
+    "- NEVER invent or guess a property, price, address, feature or fact that "
+    "is not written out below - not to be helpful, not as an example, not "
+    "even hedged as a maybe.\n\n"
     "OTHER PROPERTIES: the property under THE PROPERTY below is the one they "
     "clicked through for - it stays the main subject of the conversation and "
     "the first one you mention. Only bring up other places if they ask what "
-    "else is available, and then only ones listed under OTHER LISTINGS. NEVER "
-    "invent, guess at or half-remember a property that is not written out in "
-    "this prompt - not a name, not a price, not an area."
+    "else is available, or follow up on one you have already mentioned, and "
+    "then only ones listed under OTHER LISTINGS."
 )
 
 # Appended AFTER the property/alternatives blocks, so the output contract is
@@ -113,10 +157,20 @@ OUTPUT_FORMAT_PROMPT = (
     '  "timeline_signal": a short string summarising when they want to move '
     '(e.g. "Looking to move in early August"), or null if they haven\'t said.'
     "\n\n"
-    'STATUS RULES: default to "lead". Only return "prospect" once the '
-    "conversation has given you REAL signal on BOTH their budget fit for this "
-    "property AND their move-in timeline. A vague \"soon\" or \"depends\" is "
-    'not real signal. When in doubt, stay on "lead".\n\n'
+    'STATUS RULES - a two-condition test, not a judgement call. Default to '
+    '"lead" and work through both:\n'
+    "  A. Have they given REAL signal about their budget or whether the price "
+    "works for them?\n"
+    "  B. Have they given REAL signal about WHEN they want to move in?\n"
+    'Return "prospect" ONLY when A and B are BOTH yes. If either one is no, '
+    'the answer is "lead". Budget on its own is NOT enough, however clear or '
+    "generous it is. A move-in date on its own is NOT enough either. Someone "
+    'who names an exact budget and never mentions timing is still "lead". A '
+    'vague "soon", "depends" or "just looking around" does not satisfy B.\n'
+    "CONSISTENCY CHECK before you answer: your own two signal fields have to "
+    'agree with your status. If "timeline_signal" is null you MUST return '
+    '"lead". If "budget_signal" is null you MUST return "lead". "prospect" is '
+    "never correct while either of those is null.\n\n"
     "Even when you are turning someone down, have nothing to offer them, or "
     "are listing other places, the reply is still that one JSON object - the "
     "prose goes inside \"reply\"."
@@ -127,14 +181,14 @@ OUTPUT_FORMAT_PROMPT = (
 # mid-conversation should never see a 502 because a reply came back as prose.
 JSON_PREFILL = "{"
 
-# Four small fields, so a fraction of a chat turn's budget is plenty - and a
+# Eight small fields, so a fraction of a chat turn's budget is plenty - and a
 # tight cap keeps this second call from adding noticeable latency to a reply.
-SEARCH_INTENT_MAX_TOKENS = 200
+SEARCH_INTENT_MAX_TOKENS = 400
 
-# Intent lives in the last thing they said plus a little surrounding context
-# ("what about a different area?" needs the area they were just discussing).
-# Far fewer turns than the reply call needs, and cheaper for it.
-SEARCH_INTENT_HISTORY_TURNS = 6
+# This call re-derives the visitor's WHOLE requirement set every turn, so it
+# needs the whole conversation - a budget mentioned early has to still be
+# visible ten turns later. Same window as the reply call for that reason.
+SEARCH_INTENT_HISTORY_TURNS = MAX_HISTORY_TURNS
 
 # What extract_search_intent returns whenever it cannot get a usable answer -
 # i.e. "carry on exactly as before". Copied, never handed out directly, so a
@@ -142,31 +196,77 @@ SEARCH_INTENT_HISTORY_TURNS = 6
 _NO_SEARCH_INTENT = {
     "wants_alternatives": False,
     "max_price": None,
+    "target_price": None,
     "location_keyword": None,
     "room_type_keyword": None,
+    "bed_type_keyword": None,
+    "bathroom_type_keyword": None,
+    "must_have_features": [],
 }
 
+# At most this many feature keywords are passed to the search. Every extra one
+# is another constraint that has to be relaxed away, and a visitor who really
+# has five hard requirements is better served by the first few than by a search
+# that matches nothing and falls all the way down the relaxation ladder.
+MAX_FEATURE_KEYWORDS = 4
+
 SEARCH_INTENT_PROMPT = (
-    "You read one message from someone chatting about a rental property and "
-    "decide whether they are asking to see OTHER properties, plus what they "
-    "would want from one. You are not replying to them - you only extract.\n\n"
+    "You read a conversation between a visitor and a leasing assistant, and "
+    "report what the visitor is looking for RIGHT NOW. You are not replying to "
+    "them - you only extract.\n\n"
+    "THE WHOLE CONVERSATION, NOT JUST THE LAST MESSAGE. Build one single, "
+    "current set of requirements from everything they have said:\n"
+    "- A preference they gave earlier STILL APPLIES unless they have since "
+    "changed or dropped it. If they said RM 900 four messages ago and now only "
+    'ask "anything in Cheras?", the answer is RM 900 AND Cheras.\n'
+    "- If they change their mind about something (\"actually, more like RM "
+    '800"), the NEW value replaces the old one FOR THAT ONE FIELD ONLY. '
+    "Everything else they said earlier still stands - do not clear it, and do "
+    "not merge the old and new values.\n"
+    "- Only leave a field null if they have never given it, or have explicitly "
+    "said they no longer mind about it.\n"
+    "- A QUESTION IS NOT A PREFERENCE. Record only what they say they want, "
+    'need or are looking for. "Is the bathroom shared or private?" is asking '
+    "what this one HAS - it does not mean they want either, so "
+    'bathroom_type_keyword stays null. "How much is it?" is not a budget. Only '
+    'something like "I\'d want my own bathroom" sets that field.\n\n'
     "Reply with ONLY a single JSON object and nothing else - no markdown, no "
-    "code fences, no commentary. Exactly these four keys:\n"
-    '  "wants_alternatives": true if their latest message is asking about '
-    "other places, more options, something cheaper, or somewhere else - false "
-    "if they are asking about the property already under discussion, or "
-    "chatting about anything else.\n"
-    '  "max_price":          the most they want to pay per month, as a plain '
-    "whole number of ringgit with no currency symbol, commas or text (1200, "
-    'not "RM 1,200"). null if they have not named a figure. Do NOT guess one '
-    'from a vague phrase like "cheaper" or "around the same".\n'
-    '  "location_keyword":   one or two words that would appear in a street '
-    'address of the area they want (e.g. "Cheras", "Jalan Ipoh", "Bangsar"). '
-    "null if they have not named an area, or if they only said they want a "
-    "different one without saying where.\n"
-    '  "room_type_keyword":  one word for the kind of room or bed they want '
-    '(e.g. "Master", "Medium", "Single", "Queen"). null if they have not '
-    "said.\n\n"
+    "code fences, no commentary. Exactly these eight keys:\n"
+    '  "wants_alternatives":    true if answering their LATEST message needs '
+    "properties other than the one they originally clicked through for. True "
+    "when they ask what else is available or want something cheaper or "
+    "elsewhere; true for a follow-up about an alternative already mentioned to "
+    'them ("does that one have parking?", "tell me more about the second '
+    'one"); and true when they simply DESCRIBE what they are after - naming a '
+    "budget, an area, a room type or a must-have is itself asking to be shown "
+    "something that fits, whether or not they use the words 'anything else'. "
+    "False only when the latest message is purely about the original property "
+    "(its rent, its bathroom, seeing it), is about their move-in timing, or is "
+    "a greeting or small talk.\n"
+    '  "max_price":             a monthly CEILING, as a plain whole number of '
+    "ringgit with no symbol, commas or text (1200, not \"RM 1,200\"). Use this "
+    'for "under X", "up to X", "no more than X", "my budget is X". null '
+    "otherwise.\n"
+    '  "target_price":          a monthly figure they named LOOSELY - "around '
+    'X", "about X", "roughly X", "X or so". null otherwise. Set max_price OR '
+    "target_price, never both, and never guess a number from a vague word like "
+    '"cheaper" or "affordable" - leave both null instead.\n'
+    '  "location_keyword":      one or two words that would appear in the '
+    'street address of the area they want (e.g. "Cheras", "Mont Kiara", '
+    '"Petaling Jaya"). null if they have not named an area, or only said they '
+    "want a different one without saying where.\n"
+    '  "room_type_keyword":     the kind of room (e.g. "Master", "Medium", '
+    '"Single", "Studio", "Partitioned"). null if not said.\n'
+    '  "bed_type_keyword":      the bed, and only if they mention it '
+    'specifically (e.g. "Queen", "Single"). null if not said.\n'
+    '  "bathroom_type_keyword": "Private" if they want their own bathroom '
+    '(ensuite, attached, not sharing), "Shared" if they are happy sharing or '
+    "asked for it. null if it has not come up.\n"
+    '  "must_have_features":    a JSON array of short lowercase keywords for '
+    'things they said they need, e.g. ["parking", "balcony", "big window"]. '
+    "Use an empty array [] when they have not named any. Do not put budget, "
+    "area, room type, bed or bathroom in here - they each have their own field "
+    "above.\n\n"
     "Prefer null over a guess: a wrong keyword finds the wrong places, while "
     "null simply searches more broadly."
 )
@@ -235,7 +335,11 @@ def _listing_summary(item: dict) -> str:
     return " - ".join(parts)
 
 
-def _build_alternatives_block(other_listings: list[dict] | None) -> str:
+def _build_alternatives_block(
+    other_listings: list[dict] | None,
+    alternatives_exact: bool = True,
+    relaxed_criteria: list[str] | tuple[str, ...] | None = None,
+) -> str:
     """
     Describe the other listings we found for this turn, for the system prompt.
 
@@ -243,23 +347,50 @@ def _build_alternatives_block(other_listings: list[dict] | None) -> str:
     policy: either way the assistant has nothing real to offer, so it must say
     so instead of filling the gap. The listing_context property stays primary
     in both cases.
+
+    `alternatives_exact` is False when the search had to loosen what they asked
+    for to find anything (see listings_source.SearchResult). That distinction
+    has to reach the assistant, not be quietly flattened here: presenting a
+    RM 800 room to someone who said "under RM 700" as though it matched is the
+    one thing worse than having nothing to show them.
     """
     lines = [line for line in (_listing_summary(item) for item in other_listings or []) if line]
 
     if not lines:
         return (
-            "\n\nOTHER LISTINGS: you have none to hand for this message. If "
-            "they are asking what else is available, tell them honestly that "
-            "you don't have anything else to show them right now (or nothing "
-            "matching what they described) and offer to check with the team. "
-            "Do NOT invent an alternative property, and do not imply one "
-            "exists."
+            "\n\nOTHER LISTINGS: there are none. Either nothing in the pool "
+            "matches what they described, or they have not asked. If they are "
+            "asking what else is available, tell them plainly and in one "
+            "sentence that you have nothing matching that - and do not offer "
+            "to check, ask around or come back to them, because you cannot. "
+            "You may ask whether they would flex on the budget or the area, "
+            "since that would let you look again. NEVER invent an alternative "
+            "property and never imply one exists."
         )
 
-    return (
+    header = (
         "\n\nOTHER LISTINGS - real, currently available places you MAY offer "
-        "if they are asking about other options. Mention at most two of them, "
-        "by name and price, and only ones from this list:\n"
+        "when they ask about other options or follow up on one of them. Only "
+        "ever name places from this list. Mention at most two at a time so the "
+        "reply stays short, but if they ask about any of them you may share "
+        "ANY detail on its line - price, full address, room type, bed, "
+        "bathroom, parking cost:\n"
+    )
+
+    if alternatives_exact:
+        return header + "\n".join(f"- {line}" for line in lines)
+
+    given_up = ", ".join(relaxed_criteria or []) or "some of what they asked for"
+    return (
+        "\n\nIMPORTANT - THESE ARE NOT EXACT MATCHES. Nothing available "
+        f"matches everything they asked for, so the search loosened {given_up} "
+        "to find the nearest things. You MUST say so before or as you offer "
+        'them - something like "nothing matches that exactly, but the closest '
+        'I have is..." - and be specific about where they fall short (over '
+        "budget, a shared bathroom rather than private, and so on) by "
+        "comparing what they asked for against the details below. NEVER "
+        "present one of these as though it met the original request."
+        + header
         + "\n".join(f"- {line}" for line in lines)
     )
 
@@ -349,22 +480,52 @@ def _normalise(parsed: dict) -> dict:
     Guarantees a non-empty `reply`, a `status` that is exactly "lead" or
     "prospect" (anything unrecognised falls back to "lead" - the conservative
     side), and two signal fields that are either a clean string or None.
+
+    It also enforces the rule the STATUS RULES prompt states: "prospect"
+    requires real signal on BOTH budget and timeline. The prompt asks for that
+    and now gets it, but asking is not the same as guaranteeing - this used to
+    come back "prospect" off a clear budget with no mention of moving at all.
+    Deciding it here instead makes it true by construction, and the two signal
+    fields are the right thing to decide it from: they are what a human reads
+    off the Airtable row, so a "prospect" with nothing in its timeline column
+    is not a qualified lead, it is a mislabelled one.
     """
     reply = parsed.get("reply")
     if not isinstance(reply, str) or not reply.strip():
         raise ChatError("The assistant's response was missing a usable 'reply'.")
+
+    # Cleaned first, because the status below is derived from them. Note
+    # _optional_signal also turns a literal "null"/"unknown" string into None,
+    # so a model writing the word instead of emitting JSON null cannot talk its
+    # way past this either.
+    budget_signal = _optional_signal(parsed.get("budget_signal"))
+    timeline_signal = _optional_signal(parsed.get("timeline_signal"))
 
     raw_status = parsed.get("status")
     status = raw_status.strip().lower() if isinstance(raw_status, str) else ""
     if status != STATUS_PROSPECT:
         # Unknown/missing status means we haven't earned "prospect" yet.
         status = STATUS_LEAD
+    elif budget_signal is None or timeline_signal is None:
+        # Backstop, not a replacement for the prompt: whatever it claimed, it
+        # has not reported both signals, so it has not earned "prospect".
+        # Logged at warning like the other model-contract violations in this
+        # module - a "prospect" with a missing signal is the model
+        # contradicting its own output, and a silent backstop is one nobody
+        # notices has started carrying weight. Nothing here configures INFO.
+        logger.warning(
+            "Claimed 'prospect' without both signals - recording as 'lead' "
+            "(budget_signal=%s, timeline_signal=%s)",
+            "set" if budget_signal else "missing",
+            "set" if timeline_signal else "missing",
+        )
+        status = STATUS_LEAD
 
     return {
         "reply": reply.strip(),
         "status": status,
-        "budget_signal": _optional_signal(parsed.get("budget_signal")),
-        "timeline_signal": _optional_signal(parsed.get("timeline_signal")),
+        "budget_signal": budget_signal,
+        "timeline_signal": timeline_signal,
     }
 
 
@@ -396,14 +557,57 @@ def _as_positive_int(value) -> int | None:
     return number if number > 0 else None
 
 
+def _as_keyword_list(value) -> list[str]:
+    """
+    A short list of clean feature keywords from whatever the model emitted.
+
+    Accepts the JSON array it is asked for, and also tolerates the single
+    comma-separated string it sometimes sends instead. Anything else - a dict,
+    a number, the literal word "null" - is simply no features rather than an
+    error, because this whole call is a hint.
+    """
+    if isinstance(value, str):
+        items = value.split(",")
+    elif isinstance(value, (list, tuple)):
+        items = list(value)
+    else:
+        return []
+
+    keywords: list[str] = []
+    for item in items:
+        cleaned = _optional_signal(item)
+        if cleaned and cleaned.lower() not in (word.lower() for word in keywords):
+            keywords.append(cleaned)
+    return keywords[:MAX_FEATURE_KEYWORDS]
+
+
 def extract_search_intent(history: list[dict], message: str) -> dict:
     """
-    Read a lead's message for "show me something else" and what they'd want.
+    Read the WHOLE conversation for what this visitor is currently after.
 
     Returns exactly::
 
-        {"wants_alternatives": bool, "max_price": int | None,
-         "location_keyword": str | None, "room_type_keyword": str | None}
+        {"wants_alternatives": bool,
+         "max_price": int | None, "target_price": int | None,
+         "location_keyword": str | None, "room_type_keyword": str | None,
+         "bed_type_keyword": str | None, "bathroom_type_keyword": str | None,
+         "must_have_features": list[str]}
+
+    The filters are accumulated, not per-message: a budget given five turns ago
+    still applies to a message that only names an area, and a change of mind
+    ("actually, more like RM 800") replaces just that one field. That is why
+    this sends the full history rather than the last couple of turns - the
+    model is re-deriving the current requirement set each time, not reading one
+    sentence in isolation.
+
+    `wants_alternatives` gates whether the caller searches at all. It covers
+    follow-up questions about an alternative already mentioned ("does that one
+    have parking?"), because those need the same listings in front of the
+    assistant to answer - and since the filters carry forward, re-running the
+    search returns the same rows it was just talking about. It is also forced
+    true whenever any concrete preference is on the table, model judgement or
+    not: see the note at the `has_preferences` line for why erring towards
+    searching is the safe direction.
 
     This is a hint for the caller's listing search, not part of answering the
     lead, so it NEVER raises: a missing API key, a rate limit, a network blip
@@ -417,6 +621,10 @@ def extract_search_intent(history: list[dict], message: str) -> dict:
     try:
         messages = _clean_history(history, max_turns=SEARCH_INTENT_HISTORY_TURNS)
         messages.append({"role": "user", "content": message.strip()})
+        # Same trick as the reply call: start its turn mid-object so the only
+        # thing it can do is finish the JSON. Cheap insurance on a call whose
+        # failure mode is silently searching with no filters at all.
+        messages.append({"role": "assistant", "content": JSON_PREFILL})
 
         response = anthropic.Anthropic().messages.create(
             model=MODEL,
@@ -425,13 +633,48 @@ def extract_search_intent(history: list[dict], message: str) -> dict:
             messages=messages,
         )
         text = "".join(block.text for block in response.content if block.type == "text")
-        parsed = _extract_json(text)
+        parsed = _extract_json(JSON_PREFILL + text)
+
+        max_price = _as_positive_int(parsed.get("max_price"))
+        target_price = _as_positive_int(parsed.get("target_price"))
+        if max_price is not None and target_price is not None:
+            # Told to send one or the other; if it sends both, the ceiling is
+            # the safer reading - it is the one a visitor would be annoyed to
+            # see ignored.
+            target_price = None
+
+        features = _as_keyword_list(parsed.get("must_have_features"))
+        location = _optional_signal(parsed.get("location_keyword"))
+        room_type = _optional_signal(parsed.get("room_type_keyword"))
+        bed_type = _optional_signal(parsed.get("bed_type_keyword"))
+        bathroom_type = _optional_signal(parsed.get("bathroom_type_keyword"))
+
+        # Stating a requirement IS asking to be shown something that meets it,
+        # so any concrete preference turns the search on regardless of how the
+        # model judged the question. It kept answering false for "I'm after a
+        # master room in Mont Kiara under RM 700" - reasonably, since it is
+        # never told WHICH property they clicked through for and so cannot tell
+        # "somewhere else" from "this place" - and the assistant then told
+        # someone we had nothing when we had a near miss to show them.
+        #
+        # Erring towards searching is the safe direction: a spare list of real
+        # listings the assistant is told to keep secondary costs a turn
+        # nothing, while a missed search makes it deny stock we actually have.
+        # With no preferences at all this is still false, so a plain
+        # single-property conversation searches exactly as little as before.
+        has_preferences = any(
+            (max_price, target_price, location, room_type, bed_type, bathroom_type, features)
+        )
 
         return {
-            "wants_alternatives": _as_bool(parsed.get("wants_alternatives")),
-            "max_price": _as_positive_int(parsed.get("max_price")),
-            "location_keyword": _optional_signal(parsed.get("location_keyword")),
-            "room_type_keyword": _optional_signal(parsed.get("room_type_keyword")),
+            "wants_alternatives": _as_bool(parsed.get("wants_alternatives")) or has_preferences,
+            "max_price": max_price,
+            "target_price": target_price,
+            "location_keyword": location,
+            "room_type_keyword": room_type,
+            "bed_type_keyword": bed_type,
+            "bathroom_type_keyword": bathroom_type,
+            "must_have_features": features,
         }
     except Exception as exc:  # noqa: BLE001 - a hint must never break the turn
         logger.warning("Could not read search intent from the lead's message: %s", exc)
@@ -443,6 +686,8 @@ def qualify_lead(
     message: str,
     listing_context: dict | None,
     other_listings: list[dict] | None = None,
+    alternatives_exact: bool = True,
+    relaxed_criteria: list[str] | tuple[str, ...] | None = None,
 ) -> dict:
     """
     Answer a lead's chat message and score how qualified they are.
@@ -464,6 +709,15 @@ def qualify_lead(
             either way. Pass None (the default) when they aren't asking for
             alternatives; None and an empty list both mean the assistant says
             it has nothing else to show rather than inventing something.
+        alternatives_exact: False when `other_listings` came back from a
+            search that had to loosen the lead's criteria to find anything -
+            i.e. listings_source.SearchResult.is_exact. The assistant is then
+            told to offer them explicitly as near misses. Leaving this True for
+            relaxed results would have it present a compromise as a match.
+        relaxed_criteria: What that search gave up ("price range",
+            "must-have features"), from SearchResult.relaxed_criteria, so the
+            assistant can name the shortfall instead of waving at it. Ignored
+            when `alternatives_exact` is True.
 
     Returns:
         dict with keys "reply" (str), "status" ("lead" or "prospect"),
@@ -502,7 +756,9 @@ def qualify_lead(
             system=(
                 SYSTEM_PROMPT
                 + _build_context_block(listing_context)
-                + _build_alternatives_block(other_listings)
+                + _build_alternatives_block(
+                    other_listings, alternatives_exact, relaxed_criteria
+                )
                 + OUTPUT_FORMAT_PROMPT
             ),
             messages=messages,

@@ -1,0 +1,489 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="robots" content="noindex, nofollow" />
+  <title>PropVibe - Internal Dashboard</title>
+  <style>
+    :root { --navy: #1a2b4c; --gold: #d4af37; --gray: #4a5568; --line: #e2e8f0; }
+    * { box-sizing: border-box; }
+    body {
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      margin: 0; background: #f6f7f9; color: #1a202c; line-height: 1.5;
+    }
+    header { background: var(--navy); color: #fff; padding: 18px 24px; }
+    header h1 { margin: 0; font-size: 20px; }
+    header p { margin: 4px 0 0; font-size: 13px; opacity: 0.8; }
+    main { max-width: 1180px; margin: 0 auto; padding: 24px; }
+    section { margin-bottom: 28px; }
+    .card {
+      background: #fff; border: 1px solid var(--line); border-radius: 10px;
+      padding: 20px;
+    }
+    h2 {
+      font-size: 15px; text-transform: uppercase; letter-spacing: 0.04em;
+      color: var(--gray); margin: 0 0 4px;
+    }
+    .section-note { margin: 0 0 16px; font-size: 13px; color: var(--gray); }
+
+    /* Summary tiles */
+    .tiles {
+      display: grid; gap: 12px; margin-bottom: 28px;
+      grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    }
+    .tile {
+      background: #fff; border: 1px solid var(--line); border-radius: 10px;
+      padding: 16px 18px;
+    }
+    .tile .label {
+      font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em;
+      color: var(--gray); font-weight: 600;
+    }
+    .tile .value { font-size: 28px; font-weight: 700; color: var(--navy); margin-top: 2px; }
+    .tile .value.small { font-size: 20px; }
+    .tile.highlight { border-color: var(--gold); background: #fbf7e8; }
+
+    /* Tables */
+    .table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+    table { border-collapse: collapse; width: 100%; font-size: 13px; }
+    th, td {
+      text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--line);
+      vertical-align: top; white-space: nowrap;
+    }
+    th {
+      font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em;
+      color: var(--gray); background: #f6f7f9; position: sticky; top: 0;
+    }
+    tbody tr:hover { background: #fafbfc; }
+    td.wrap { white-space: normal; min-width: 200px; max-width: 360px; }
+    td.num { text-align: right; font-variant-numeric: tabular-nums; }
+    th.num { text-align: right; }
+    .mono { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 12px; }
+    .unknown { color: #94a3b8; font-style: italic; }
+
+    /* Status + tags */
+    .badge {
+      display: inline-block; font-size: 12px; font-weight: 600;
+      padding: 3px 9px; border-radius: 999px; background: #eef1f6; color: var(--navy);
+    }
+    .badge-booked { background: #e8f5ec; color: #1a6b3a; border: 1px solid #9ed6b0; }
+    .badge-lead { background: #eef1f6; color: var(--navy); border: 1px solid #d4dbe6; }
+    .badge-unknown { background: #f1f5f9; color: #64748b; border: 1px solid var(--line); }
+    tr.row-booked { background: #f4fbf6; }
+    tr.row-booked:hover { background: #edf8f1; }
+    .tag {
+      display: inline-block; background: #eef1f6; color: var(--navy); font-size: 12px;
+      font-weight: 600; padding: 3px 9px; border-radius: 999px;
+    }
+    .tag-best { background: #fbf7e8; border: 1px solid var(--gold); }
+
+    /* Expandable transcript / caption */
+    .preview { color: var(--gray); }
+    .toggle {
+      font: inherit; font-size: 12px; font-weight: 600; border: 0; background: none;
+      color: #1877f2; cursor: pointer; padding: 0; margin-top: 4px; display: block;
+    }
+    .full {
+      white-space: pre-wrap; background: #f6f7f9; border: 1px solid var(--line);
+      border-radius: 6px; padding: 10px 12px; margin-top: 6px; font-size: 12px;
+      max-height: 320px; overflow-y: auto;
+    }
+    a { color: #1877f2; }
+    .links a { margin-right: 10px; font-size: 12px; font-weight: 600; }
+
+    /* Style performance bars */
+    .style-row { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; }
+    .style-row .name { width: 120px; font-weight: 600; font-size: 13px; flex: none; }
+    .style-row .bar-track { flex: 1; background: #eef1f6; border-radius: 999px; height: 10px; }
+    .style-row .bar { background: var(--navy); border-radius: 999px; height: 10px; }
+    .style-row.best .bar { background: var(--gold); }
+    .style-row .score {
+      width: 76px; text-align: right; font-size: 13px; font-variant-numeric: tabular-nums;
+      flex: none;
+    }
+
+    .error {
+      margin-bottom: 16px; padding: 12px 14px; background: #fdecec;
+      border: 1px solid #f5b5b5; border-radius: 6px; color: #9b1c1c; font-size: 13px;
+    }
+    .empty { color: var(--gray); font-size: 13px; padding: 18px 0; text-align: center; }
+    .hidden { display: none; }
+    footer { color: var(--gray); font-size: 12px; padding: 0 24px 28px; text-align: center; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>PropVibe - Internal Dashboard</h1>
+    <p>Read-only view of the sales flow: posts, engagement, caption-style performance and leads.</p>
+  </header>
+
+  <main>
+    <div id="errors"></div>
+
+    <div class="tiles" id="tiles"></div>
+
+    <section>
+      <div class="card">
+        <h2>Leads &amp; prospects</h2>
+        <p class="section-note" id="leads-note"></p>
+        <div class="table-wrap"><table id="leads-table"></table></div>
+        <p class="empty hidden" id="leads-empty">No leads recorded yet.</p>
+      </div>
+    </section>
+
+    <section>
+      <div class="card">
+        <h2>Style performance</h2>
+        <p class="section-note">
+          Average engagement (clicks + likes + comments) per caption style, straight from
+          <code>get_style_performance()</code> - the same numbers the caption generator leans on.
+        </p>
+        <div id="styles"></div>
+        <p class="empty hidden" id="styles-empty">
+          No style performance yet - it needs at least one post with a synced engagement row.
+        </p>
+      </div>
+    </section>
+
+    <section>
+      <div class="card">
+        <h2>Posts</h2>
+        <p class="section-note">
+          Engagement columns show the most recent synced snapshot for each post.
+        </p>
+        <div class="table-wrap"><table id="posts-table"></table></div>
+        <p class="empty hidden" id="posts-empty">No posts logged in Airtable yet.</p>
+      </div>
+    </section>
+
+    <section>
+      <div class="card">
+        <h2>Engagement records</h2>
+        <p class="section-note">
+          Every snapshot written by /sync-engagement, cross-referenced to the post it belongs to.
+        </p>
+        <div class="table-wrap"><table id="engagement-table"></table></div>
+        <p class="empty hidden" id="engagement-empty">No engagement records yet.</p>
+      </div>
+    </section>
+
+    <p class="empty" id="loading">Loading dashboard data...</p>
+  </main>
+
+  <footer>Read-only. This page never writes to Airtable.</footer>
+
+  <script>
+    // ---------------------------------------------------------------------
+    // Auth. The server gate accepts the secret as ?secret=, as an
+    // X-Internal-Secret header, or as the cookie it set when this page was
+    // served. We read the query string once (so a fetch still works if the
+    // cookie was blocked), then strip it back out of the address bar so the
+    // secret isn't left sitting in the URL for the rest of the session.
+    // ---------------------------------------------------------------------
+    var params = new URLSearchParams(window.location.search);
+    var secret = params.get('secret');
+    if (secret) {
+      window.history.replaceState({}, '', window.location.pathname);
+    }
+
+    // ---- tiny DOM helpers (textContent everywhere - never innerHTML, since
+    // captions and transcripts are text a lead typed) -----------------------
+    function el(tag, className, text) {
+      var node = document.createElement(tag);
+      if (className) { node.className = className; }
+      if (text !== undefined && text !== null) { node.textContent = text; }
+      return node;
+    }
+
+    var UNKNOWN = 'Unknown';
+
+    /** A cell whose value may be the placeholder "Unknown" (greyed out). */
+    function textCell(value, className) {
+      var td = el('td', className || '');
+      if (!value || value === UNKNOWN) {
+        td.appendChild(el('span', 'unknown', UNKNOWN));
+      } else {
+        td.textContent = value;
+      }
+      return td;
+    }
+
+    function numCell(value) {
+      return el('td', 'num', String(value === null || value === undefined ? 0 : value));
+    }
+
+    function headRow(table, columns) {
+      var thead = el('thead');
+      var tr = el('tr');
+      columns.forEach(function (column) {
+        var th = el('th', column.num ? 'num' : '', column.label);
+        tr.appendChild(th);
+      });
+      thead.appendChild(tr);
+      table.appendChild(thead);
+      var tbody = el('tbody');
+      table.appendChild(tbody);
+      return tbody;
+    }
+
+    function formatTime(iso) {
+      if (!iso) { return null; }
+      var date = new Date(iso);
+      if (isNaN(date.getTime())) { return iso; }
+      return date.toLocaleString(undefined, {
+        year: 'numeric', month: 'short', day: 'numeric',
+        hour: '2-digit', minute: '2-digit'
+      });
+    }
+
+    /**
+     * A cell holding long text: a short preview plus a button that expands the
+     * full value in place. Keeps transcripts (and captions) out of the table
+     * layout until someone actually asks for one.
+     */
+    function expandableCell(text, previewLength, showLabel, hideLabel) {
+      var td = el('td', 'wrap');
+      if (!text) {
+        td.appendChild(el('span', 'unknown', 'None'));
+        return td;
+      }
+
+      var oneLine = text.replace(/\s+/g, ' ').trim();
+      var needsToggle = oneLine.length > previewLength;
+      var preview = el(
+        'div',
+        'preview',
+        needsToggle ? oneLine.slice(0, previewLength).trim() + '...' : oneLine
+      );
+      td.appendChild(preview);
+
+      var full = el('div', 'full hidden', text);
+      var button = el('button', 'toggle', showLabel);
+      button.type = 'button';
+      button.addEventListener('click', function () {
+        var opening = full.classList.contains('hidden');
+        full.classList.toggle('hidden', !opening);
+        preview.classList.toggle('hidden', opening);
+        button.textContent = opening ? hideLabel : showLabel;
+      });
+      td.appendChild(full);
+      td.appendChild(button);
+      return td;
+    }
+
+    function statusBadge(status, isBooked) {
+      var kind = isBooked ? 'badge-booked' : (status === UNKNOWN ? 'badge-unknown' : 'badge-lead');
+      return el('span', 'badge ' + kind, status || UNKNOWN);
+    }
+
+    // ---- renderers -------------------------------------------------------
+
+    function renderTiles(data) {
+      var tiles = document.getElementById('tiles');
+      tiles.textContent = '';
+
+      var totalClicks = data.posts.reduce(function (sum, post) {
+        return sum + (post.clicks || 0);
+      }, 0);
+
+      var best = data.style_performance.best;
+      var entries = [
+        { label: 'Total leads', value: data.leads.total },
+        { label: 'Viewings booked', value: data.leads.viewings_booked, highlight: true },
+        { label: 'Posts published', value: data.posts.length },
+        { label: 'Clicks (latest sync)', value: totalClicks },
+        { label: 'Best performing style', value: best || 'Not enough data', small: true }
+      ];
+
+      entries.forEach(function (entry) {
+        var tile = el('div', 'tile' + (entry.highlight ? ' highlight' : ''));
+        tile.appendChild(el('div', 'label', entry.label));
+        tile.appendChild(el('div', 'value' + (entry.small ? ' small' : ''), String(entry.value)));
+        tiles.appendChild(tile);
+      });
+    }
+
+    function renderLeads(leads) {
+      var table = document.getElementById('leads-table');
+      table.textContent = '';
+
+      var note = document.getElementById('leads-note');
+      var breakdown = leads.by_status.map(function (item) {
+        return item.status + ': ' + item.count;
+      }).join('  -  ');
+      note.textContent = leads.total + ' total, ' + leads.viewings_booked
+        + ' with a viewing booked' + (breakdown ? '  (' + breakdown + ')' : '');
+
+      document.getElementById('leads-empty').classList.toggle('hidden', leads.rows.length > 0);
+      if (!leads.rows.length) { return; }
+
+      var tbody = headRow(table, [
+        { label: 'Lead ID' }, { label: 'Name' }, { label: 'Contact' },
+        { label: 'Interested listing' }, { label: 'Source' }, { label: 'Status' },
+        { label: 'Tracking ID' }, { label: 'Budget signal' }, { label: 'Timeline signal' },
+        { label: 'First seen' }, { label: 'Transcript' }
+      ]);
+
+      leads.rows.forEach(function (lead) {
+        var tr = el('tr', lead.is_viewing_booked ? 'row-booked' : '');
+        tr.appendChild(textCell(lead.lead_id, 'mono'));
+        tr.appendChild(textCell(lead.name));
+        tr.appendChild(textCell(lead.contact));
+        tr.appendChild(textCell(lead.interested_listing));
+        tr.appendChild(textCell(lead.source));
+
+        var statusTd = el('td');
+        statusTd.appendChild(statusBadge(lead.status, lead.is_viewing_booked));
+        tr.appendChild(statusTd);
+
+        tr.appendChild(textCell(lead.tracking_id, 'mono'));
+        tr.appendChild(textCell(lead.budget_signal, 'wrap'));
+        tr.appendChild(textCell(lead.timeline_signal, 'wrap'));
+        tr.appendChild(textCell(formatTime(lead.created_at)));
+        tr.appendChild(expandableCell(lead.transcript, 70, 'Show transcript', 'Hide transcript'));
+        tbody.appendChild(tr);
+      });
+    }
+
+    function renderStyles(performance) {
+      var container = document.getElementById('styles');
+      container.textContent = '';
+
+      var rows = performance.averages || [];
+      document.getElementById('styles-empty').classList.toggle('hidden', rows.length > 0);
+      if (!rows.length) { return; }
+
+      var top = rows[0].average || 1;
+      rows.forEach(function (row) {
+        var isBest = row.style_tag === performance.best;
+        var line = el('div', 'style-row' + (isBest ? ' best' : ''));
+
+        var name = el('div', 'name');
+        name.appendChild(el('span', 'tag' + (isBest ? ' tag-best' : ''), row.style_tag));
+        line.appendChild(name);
+
+        var track = el('div', 'bar-track');
+        var bar = el('div', 'bar');
+        bar.style.width = Math.max(2, (row.average / top) * 100) + '%';
+        track.appendChild(bar);
+        line.appendChild(track);
+
+        line.appendChild(el('div', 'score', row.average.toFixed(1)));
+        container.appendChild(line);
+      });
+    }
+
+    function renderPosts(posts) {
+      var table = document.getElementById('posts-table');
+      table.textContent = '';
+      document.getElementById('posts-empty').classList.toggle('hidden', posts.length > 0);
+      if (!posts.length) { return; }
+
+      var tbody = headRow(table, [
+        { label: 'Listing' }, { label: 'Style tag' }, { label: 'Template' },
+        { label: 'Published' }, { label: 'Clicks', num: true }, { label: 'Likes', num: true },
+        { label: 'Comments', num: true }, { label: 'Links' }, { label: 'Caption' }
+      ]);
+
+      posts.forEach(function (post) {
+        var tr = el('tr');
+        tr.appendChild(textCell(post.listing_name));
+
+        var styleTd = el('td');
+        styleTd.appendChild(el('span', 'tag', post.style_tag));
+        tr.appendChild(styleTd);
+
+        tr.appendChild(textCell(post.template_id));
+        tr.appendChild(textCell(formatTime(post.published_at)));
+        tr.appendChild(numCell(post.clicks));
+        tr.appendChild(numCell(post.likes));
+        tr.appendChild(numCell(post.comments));
+
+        var links = el('td', 'links');
+        if (post.listing_url) {
+          // Deliberately the landing page, not the /t/ redirect: opening a
+          // tracking link from here would count as a lead click.
+          var listingLink = el('a', '', 'Listing page');
+          listingLink.href = post.listing_url;
+          listingLink.target = '_blank';
+          listingLink.rel = 'noopener noreferrer';
+          links.appendChild(listingLink);
+        }
+        if (post.facebook_url) {
+          var fbLink = el('a', '', 'Facebook post');
+          fbLink.href = post.facebook_url;
+          fbLink.target = '_blank';
+          fbLink.rel = 'noopener noreferrer';
+          links.appendChild(fbLink);
+        }
+        if (!links.childNodes.length) { links.appendChild(el('span', 'unknown', 'None')); }
+        tr.appendChild(links);
+
+        tr.appendChild(expandableCell(post.caption, 60, 'Show caption', 'Hide caption'));
+        tbody.appendChild(tr);
+      });
+    }
+
+    function renderEngagement(rows) {
+      var table = document.getElementById('engagement-table');
+      table.textContent = '';
+      document.getElementById('engagement-empty').classList.toggle('hidden', rows.length > 0);
+      if (!rows.length) { return; }
+
+      var tbody = headRow(table, [
+        { label: 'Recorded' }, { label: 'Post (listing)' }, { label: 'Style tag' },
+        { label: 'Facebook post ID' }, { label: 'Clicks', num: true },
+        { label: 'Likes', num: true }, { label: 'Comments', num: true },
+        { label: 'Total', num: true }
+      ]);
+
+      rows.forEach(function (row) {
+        var tr = el('tr');
+        tr.appendChild(textCell(formatTime(row.recorded_at)));
+        tr.appendChild(textCell(row.orphaned ? UNKNOWN : row.post_listing));
+        tr.appendChild(textCell(row.post_style_tag));
+        tr.appendChild(textCell(row.post_facebook_id, 'mono'));
+        tr.appendChild(numCell(row.clicks));
+        tr.appendChild(numCell(row.likes));
+        tr.appendChild(numCell(row.comments));
+        tr.appendChild(numCell(row.total));
+        tbody.appendChild(tr);
+      });
+    }
+
+    function showError(message) {
+      var box = document.getElementById('errors');
+      box.appendChild(el('div', 'error', message));
+    }
+
+    // ---- load ------------------------------------------------------------
+    var headers = {};
+    if (secret) { headers['X-Internal-Secret'] = secret; }
+
+    fetch('/internal-dashboard/data', { headers: headers, credentials: 'same-origin' })
+      .then(function (response) {
+        if (response.status === 401 || response.status === 403) {
+          throw new Error('Session expired or the secret is no longer valid. Reload and sign in again.');
+        }
+        if (!response.ok) {
+          throw new Error('Could not load dashboard data (HTTP ' + response.status + ').');
+        }
+        return response.json();
+      })
+      .then(function (data) {
+        document.getElementById('loading').classList.add('hidden');
+        (data.errors || []).forEach(showError);
+        renderTiles(data);
+        renderLeads(data.leads);
+        renderStyles(data.style_performance);
+        renderPosts(data.posts);
+        renderEngagement(data.engagement);
+      })
+      .catch(function (error) {
+        document.getElementById('loading').classList.add('hidden');
+        showError(error.message || String(error));
+      });
+  </script>
+</body>
+</html>

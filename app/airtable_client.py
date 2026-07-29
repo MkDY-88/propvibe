@@ -801,3 +801,199 @@ def get_style_performance() -> dict[str, float]:
         for style, values in values_by_style.items()
         if values
     }
+
+
+# ---------------------------------------------------------------------------
+# Read-only reporting reads (the internal dashboard)
+# ---------------------------------------------------------------------------
+#
+# Everything below this line only ever calls _list_records, which is a plain
+# HTTP GET. Nothing here creates, updates or deletes an Airtable record: the
+# internal dashboard is a read-only consumer of tables the publish flow and the
+# lead chatbot own. Values are read through the same defensive helpers the sync
+# flow uses, so a renamed or blank column degrades to None instead of raising.
+
+
+def _leads_read_fields() -> dict[str, str]:
+    """
+    Every Leads column the dashboard READS, including the three nothing writes.
+
+    Deliberately separate from ``_leads_fields()``: that dict defines what
+    ``upsert_lead_record`` writes, and a reporting view must not widen it.
+    "Lead ID" is Airtable's own autonumber, and "Name"/"Contact" are only ever
+    filled in by a human - the chatbot is instructed never to ask for them - so
+    all three are read-only by nature and are usually blank.
+    """
+    names = dict(_leads_fields())
+    names["lead_id"] = _env("AIRTABLE_FIELD_LEAD_ID", "Lead ID")
+    names["name"] = _env("AIRTABLE_FIELD_LEAD_NAME", "Name")
+    names["contact"] = _env("AIRTABLE_FIELD_LEAD_CONTACT", "Contact")
+    return names
+
+
+def _as_text(value) -> str | None:
+    """
+    Flatten one Airtable value to trimmed display text, or None if it's empty.
+
+    Airtable hands back plain strings, numbers, and - for linked-record and
+    multi-select columns - lists. A list is joined so the caller never has to
+    render a Python repr, and an empty/whitespace value collapses to None so
+    the dashboard can substitute "Unknown" in exactly one place.
+    """
+    if value is None:
+        return None
+    if isinstance(value, list):
+        parts = [_as_text(item) for item in value]
+        joined = ", ".join(part for part in parts if part)
+        return joined or None
+    text = str(value).strip()
+    return text or None
+
+
+def _read_text(fields: dict, expected: str, keyword: str) -> str | None:
+    """``_read_field`` narrowed to display text (None when missing or blank)."""
+    return _as_text(_read_field(fields, expected, keyword))
+
+
+def get_posts_detailed() -> list[dict]:
+    """
+    Every Posts row with the columns a reporting view needs, read-only.
+
+    Richer than ``get_posts()`` (which is shaped for /sync-engagement and
+    deliberately minimal): this also returns the caption and Airtable's own
+    ``createdTime``, which is when the post was logged - i.e. published.
+
+    Each item::
+
+        {
+          "record_id": "recXXXXXXXXXXXXXX",
+          "template_id": "Template A" | None,
+          "style_tag": "Warm" | None,
+          "caption": "..." | None,
+          "facebook_post_id": "1234_5678" | None,
+          "tracking_id": "ab12cd34" | None,
+          "listing_row_index": 17 | None,
+          "created_time": "2026-07-30T02:11:00.000Z" | None,
+        }
+
+    Raises:
+        AirtableError: for missing credentials or an API/network error.
+    """
+    records = _list_records(_posts_table())
+    names = _posts_fields()
+
+    posts: list[dict] = []
+    for record in records:
+        fields = record.get("fields", {})
+        posts.append(
+            {
+                "record_id": record.get("id"),
+                "template_id": _read_text(fields, names["template_id"], "template"),
+                "style_tag": _read_text(fields, names["style_tag"], "style"),
+                "caption": _read_text(fields, names["caption"], "caption"),
+                "facebook_post_id": _read_text(
+                    fields, names["facebook_post_id"], "facebook"
+                ),
+                "tracking_id": _read_text(fields, names["tracking_id"], "tracking"),
+                "listing_row_index": _read_int(
+                    fields, names["listing_row_index"], "row index"
+                ),
+                "created_time": record.get("createdTime"),
+            }
+        )
+    return posts
+
+
+def get_engagement_records(known_post_ids: set[str]) -> list[dict]:
+    """
+    Every Engagement row, with the Post record id(s) it links back to.
+
+    ``known_post_ids`` is the set of Post record ids to match links against -
+    pass the ids from ``get_posts_detailed()``. Links are found the same way
+    ``get_style_performance`` finds them (scan every list value for a known
+    Post id) so a renamed link column still resolves.
+
+    Each item::
+
+        {
+          "record_id": "recXXXXXXXXXXXXXX",
+          "post_record_ids": ["recYYYYYYYYYYYYYY"],
+          "clicks": 4, "likes": 10, "comments": 2,
+          "created_time": "2026-07-30T02:11:00.000Z" | None,
+        }
+
+    Raises:
+        AirtableError: for missing credentials or an API/network error.
+    """
+    records = _list_records(_engagement_table())
+    names = _engagement_fields()
+
+    rows: list[dict] = []
+    for record in records:
+        fields = record.get("fields", {})
+        rows.append(
+            {
+                "record_id": record.get("id"),
+                "post_record_ids": _linked_post_ids(fields, known_post_ids),
+                "clicks": int(_read_number(fields, names["clicks"], "click")),
+                "likes": int(_read_number(fields, names["likes"], "like")),
+                "comments": int(_read_number(fields, names["comments"], "comment")),
+                "created_time": record.get("createdTime"),
+            }
+        )
+    return rows
+
+
+def get_leads() -> list[dict]:
+    """
+    Every Leads row, read-only, with each column flattened to display text.
+
+    Missing and blank columns come back as None rather than "" or a KeyError -
+    the dashboard turns those into "Unknown". Name, Contact and (today)
+    Interested Listing are blank on most rows by design: the chatbot never asks
+    for the first two, and the third is a linked-record column Airtable rejects
+    on write (see ``upsert_lead_record``).
+
+    Each item::
+
+        {
+          "record_id": "recXXXXXXXXXXXXXX",
+          "lead_id": "12" | None, "name": None, "contact": None,
+          "interested_listing": "The Birch" | None,
+          "source": "Chatbot" | None, "status": "Viewing Booked" | None,
+          "tracking_id": "ab12cd34" | None,
+          "budget_signal": None, "timeline_signal": None,
+          "transcript": "Lead: ...\\nAssistant: ..." | None,
+          "created_time": "2026-07-30T02:11:00.000Z" | None,
+        }
+
+    Raises:
+        AirtableError: for missing credentials or an API/network error.
+    """
+    records = _list_records(_leads_table())
+    names = _leads_read_fields()
+
+    leads: list[dict] = []
+    for record in records:
+        fields = record.get("fields", {})
+        leads.append(
+            {
+                "record_id": record.get("id"),
+                "lead_id": _read_text(fields, names["lead_id"], "lead id"),
+                "name": _read_text(fields, names["name"], "name"),
+                "contact": _read_text(fields, names["contact"], "contact"),
+                "interested_listing": _read_text(
+                    fields, names["interested_listing"], "interested"
+                ),
+                "source": _read_text(fields, names["source"], "source"),
+                "status": _read_text(fields, names["status"], "status"),
+                "tracking_id": _read_text(fields, names["tracking_id"], "tracking"),
+                "budget_signal": _read_text(fields, names["budget_signal"], "budget"),
+                "timeline_signal": _read_text(
+                    fields, names["timeline_signal"], "timeline"
+                ),
+                "transcript": _read_text(fields, names["transcript"], "transcript"),
+                "created_time": record.get("createdTime"),
+            }
+        )
+    return leads

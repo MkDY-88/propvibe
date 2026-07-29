@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="robots" content="noindex, nofollow" />
+  <title>PropVibe - Internal</title>
+  <style>
+    :root { --navy: #1a2b4c; --gold: #d4af37; --gray: #4a5568; --line: #e2e8f0; }
+    * { box-sizing: border-box; }
+    body {
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      margin: 0; background: #f6f7f9; color: #1a202c; line-height: 1.5;
+      min-height: 100vh; display: flex; align-items: center; justify-content: center;
+      padding: 24px;
+    }
+    .card {
+      background: #fff; border: 1px solid var(--line); border-radius: 10px;
+      padding: 28px; width: 100%; max-width: 380px;
+      box-shadow: 0 1px 3px rgba(26, 43, 76, 0.08);
+    }
+    h1 { margin: 0 0 4px; font-size: 19px; color: var(--navy); }
+    p.sub { margin: 0 0 20px; font-size: 13px; color: var(--gray); }
+    label { display: block; font-size: 13px; font-weight: 600; margin-bottom: 6px; }
+    input[type="password"] {
+      width: 100%; font: inherit; font-size: 14px; padding: 10px 12px;
+      border: 1px solid var(--line); border-radius: 6px; background: #fff;
+    }
+    button {
+      font: inherit; font-weight: 600; border: 0; border-radius: 6px;
+      padding: 11px 16px; cursor: pointer; width: 100%; margin-top: 14px;
+      background: var(--navy); color: #fff;
+    }
+    .note {
+      margin: 18px 0 0; font-size: 12px; color: var(--gray);
+      border-top: 1px solid var(--line); padding-top: 14px;
+    }
+  </style>
+</head>
+<body>
+  <main class="card">
+    <h1>PropVibe Internal</h1>
+    <p class="sub">This dashboard is restricted. Enter the internal secret to continue.</p>
+
+    <!-- A plain GET form: the server gate accepts the secret as ?secret=, then
+         sets a short-lived cookie and strips the query string from the URL. -->
+    <form method="get" action="/internal-dashboard" autocomplete="off">
+      <label for="secret">Internal secret</label>
+      <input id="secret" name="secret" type="password" required autofocus
+             autocomplete="current-password" />
+      <button type="submit">Open dashboard</button>
+    </form>
+
+    <p class="note">
+      Wrong or missing secret returns 401 and no data. Automated callers can send
+      the secret as the <code>X-Internal-Secret</code> header instead.
+    </p>
+  </main>
+</body>
+</html>

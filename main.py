@@ -95,7 +95,7 @@ from app.listings_source import (
     Listing,
     get_listing,
     next_unposted_listing,
-    random_pool_photo,
+    pool_photo_for_listing,
     search_listings,
 )
 from app.facebook_publisher import (
@@ -718,7 +718,7 @@ def auto_create_post_endpoint(
         )
 
     try:
-        photo_path = random_pool_photo()
+        photo_path = pool_photo_for_listing(listing.row_index)
     except FileNotFoundError as exc:
         raise HTTPException(status_code=500, detail=str(exc))
 

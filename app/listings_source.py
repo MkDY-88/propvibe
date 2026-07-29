@@ -27,14 +27,13 @@ The public entry points:
         for suggesting real alternatives to a lead who asks what else is
         available. The result carries an `is_exact` flag - see SearchResult.
 
-    random_pool_photo() -> str
-        A random file path from the demo photo pool.
+    pool_photo_for_listing(row_index) -> str
+        The pool photo deterministically assigned to a listing row.
 """
 
 from __future__ import annotations
 
 import csv
-import random
 import re
 from dataclasses import dataclass, replace
 from pathlib import Path
@@ -595,9 +594,21 @@ def search_listings(
     return SearchResult((), True, ())
 
 
-def random_pool_photo() -> str:
-    """A random file path from the demo unit-photo pool."""
+def pool_photo_for_listing(row_index: int) -> str:
+    """
+    The demo pool photo assigned to the listing at `row_index`, deterministically.
+
+    The same listing must show the same photo every time it is viewed: the
+    dashboard re-requests a candidate on every page load and on Skip-then-
+    return, and a listing whose photo changes between viewings reads as a bug.
+    It also keeps the per-photo lighting/weather condition cache meaningful -
+    combos generated for a listing stay attached to the photo that listing
+    will actually show next time.
+
+    Sorted filename order + modulo keeps the row -> photo mapping stable for
+    as long as the pool's contents don't change, with no state to persist.
+    """
     photos = sorted(p for p in PHOTO_POOL_DIR.iterdir() if p.is_file())
     if not photos:
         raise FileNotFoundError(f"No photos found in {PHOTO_POOL_DIR}")
-    return str(random.choice(photos))
+    return str(photos[row_index % len(photos)])

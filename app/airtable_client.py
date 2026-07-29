@@ -40,11 +40,13 @@ DESIGN NOTES
     1. Every table and field name has a sensible default AND an env override
        (AIRTABLE_POSTS_TABLE, AIRTABLE_FIELD_STYLE_TAG, ...), so a mismatch can
        be fixed with config, no code change.
-    2. On a write, if Airtable rejects a field as unknown, we log a clear
-       warning, drop just that field, and retry - so one renamed/missing column
-       never crashes the whole call. Reads look each value up by the expected
-       name, then case-insensitively, then by keyword, and treat a genuinely
-       absent field as a benign zero / skip.
+    2. On a write, if Airtable rejects a single field - either as an unknown
+       name, or as a value that column cannot hold (e.g. a linked-record
+       column handed a plain name) - we log a clear warning, drop just that
+       field, and retry. So one renamed, missing or wrongly-typed column never
+       crashes the whole call. Reads look each value up by the expected name,
+       then case-insensitively, then by keyword, and treat a genuinely absent
+       field as a benign zero / skip.
 """
 
 from __future__ import annotations
@@ -93,6 +95,10 @@ def _engagement_table() -> str:
     return _env("AIRTABLE_ENGAGEMENT_TABLE", "Engagement")
 
 
+def _leads_table() -> str:
+    return _env("AIRTABLE_LEADS_TABLE", "Leads")
+
+
 # Posts table columns.
 def _posts_fields() -> dict[str, str]:
     return {
@@ -124,6 +130,21 @@ def _engagement_fields() -> dict[str, str]:
         "clicks": _env("AIRTABLE_FIELD_CLICKS", "Clicks"),
         "likes": _env("AIRTABLE_FIELD_LIKES", "Likes"),
         "comments": _env("AIRTABLE_FIELD_COMMENTS", "Comments"),
+    }
+
+
+# Leads table columns. The table also has "Lead ID" (an autonumber primary
+# field Airtable fills in itself) plus "Name" and "Contact", which the chatbot
+# deliberately never collects - upsert_lead_record leaves those untouched.
+def _leads_fields() -> dict[str, str]:
+    return {
+        "tracking_id": _env("AIRTABLE_FIELD_LEAD_TRACKING_ID", "Tracking ID"),
+        "interested_listing": _env("AIRTABLE_FIELD_LEAD_LISTING", "Interested Listing"),
+        "source": _env("AIRTABLE_FIELD_LEAD_SOURCE", "Source"),
+        "status": _env("AIRTABLE_FIELD_LEAD_STATUS", "Status"),
+        "budget_signal": _env("AIRTABLE_FIELD_LEAD_BUDGET", "Budget Signal"),
+        "timeline_signal": _env("AIRTABLE_FIELD_LEAD_TIMELINE", "Timeline Signal"),
+        "transcript": _env("AIRTABLE_FIELD_LEAD_TRANSCRIPT", "Transcript"),
     }
 
 
@@ -225,14 +246,87 @@ def _unknown_field_name(response: httpx.Response) -> str | None:
     return match.group(1) if match else None
 
 
+def _rejected_value(response: httpx.Response) -> str | None:
+    """
+    If a response rejected one of our VALUES, extract the offending value.
+
+    Distinct from _unknown_field_name: the column exists, it just can't hold
+    what we sent - most often a linked-record column being handed a plain
+    name. Airtable words this as ``Value "The Birch" is not a valid record
+    id...`` and, unhelpfully, never names the field, so we pull the quoted
+    value out and let the caller work backwards to which field held it.
+    """
+    try:
+        payload = response.json()
+    except ValueError:
+        return None
+
+    if not isinstance(payload, dict):
+        return None
+    error = payload.get("error")
+    if not isinstance(error, dict):
+        return None
+    if error.get("type") != "INVALID_VALUE_FOR_COLUMN":
+        return None
+
+    message = error.get("message") or ""
+    match = re.search(r'"([^"]+)"', message)
+    return match.group(1) if match else None
+
+
+def _drop_rejected_field(response: httpx.Response, working: dict, table: str) -> bool:
+    """
+    Remove whichever field a failed write complained about, if we can tell.
+
+    Returns True when a field was dropped (so the caller should retry) and
+    False when the failure isn't one we can recover from by shedding a field.
+    Handles both shapes of "just this one column is wrong": a name Airtable
+    doesn't recognise, and a value the column won't accept.
+    """
+    unknown = _unknown_field_name(response)
+    if unknown:
+        # Match the offending name to one of our keys (case-insensitively) so
+        # we drop the right one regardless of exact casing in the message.
+        key = next((k for k in working if k.lower() == unknown.lower()), unknown)
+        if key in working:
+            logger.warning(
+                "Airtable table %r has no field %r - skipping it for this record.",
+                table,
+                key,
+            )
+            working.pop(key)
+            return True
+        return False
+
+    rejected = _rejected_value(response)
+    if rejected is not None:
+        # The error quotes the value, not the column, so find the field we sent
+        # it in. Values are compared as strings because Airtable echoes them
+        # back that way.
+        key = next((k for k, v in working.items() if str(v) == rejected), None)
+        if key is not None:
+            logger.warning(
+                "Airtable table %r would not accept %r for field %r (check the "
+                "column's type) - skipping it for this record.",
+                table,
+                rejected,
+                key,
+            )
+            working.pop(key)
+            return True
+
+    return False
+
+
 def _create_record(table: str, fields: dict) -> str:
     """
     Create one record in ``table``, returning its Airtable record id.
 
-    Defensive against renamed/missing columns: if Airtable rejects a field as
-    unknown, we log a warning, drop that single field, and retry. If every field
-    ends up dropped we raise a clear error rather than silently creating an empty
-    row.
+    Defensive against a column being renamed, missing, or the wrong type: if
+    Airtable rejects a single field - either as an unknown name or as a value
+    the column can't hold - we log a warning, drop that field, and retry. If
+    every field ends up dropped we raise a clear error rather than silently
+    creating an empty row.
     """
     api_key, base_id = _require_credentials()
     url = _table_url(base_id, table)
@@ -275,26 +369,65 @@ def _create_record(table: str, fields: dict) -> str:
                 )
             return record_id
 
-        # A single unknown field? Drop it and retry rather than failing the row.
-        unknown = _unknown_field_name(response)
-        if unknown:
-            # Match the offending name to one of our keys (case-insensitively) so
-            # we drop the right one regardless of exact casing in the message.
-            key = next((k for k in working if k.lower() == unknown.lower()), unknown)
-            if key in working:
-                logger.warning(
-                    "Airtable table %r has no field %r - skipping it for this record.",
-                    table,
-                    key,
-                )
-                working.pop(key)
-                continue
+        # A single bad field? Drop it and retry rather than failing the row.
+        if _drop_rejected_field(response, working, table):
+            continue
 
         # Any other error is not something we can recover from by dropping fields.
         raise AirtableError(_error_message(response))
 
     # Exhausted the retry budget without success (should be unreachable).
     raise AirtableError(f"Could not create a record in the {table!r} table after retries.")
+
+
+def _update_record(table: str, record_id: str, fields: dict) -> str:
+    """
+    Patch one existing record in ``table``, returning its Airtable record id.
+
+    The PATCH counterpart to _create_record, with the same defences: fields
+    whose value is None are omitted (so a caller can leave a column alone by
+    passing None), and a field Airtable rejects - unknown name or unusable
+    value - is logged, dropped, and the write retried rather than failing the
+    whole row. A PATCH leaves every column we don't mention untouched, which is
+    what keeps the Leads table's Name/Contact intact when the chatbot updates a
+    lead.
+    """
+    api_key, base_id = _require_credentials()
+    url = f"{_table_url(base_id, table)}/{quote(record_id)}"
+    headers = _headers(api_key)
+
+    working = {name: value for name, value in fields.items() if value is not None}
+
+    # Same retry budget as _create_record: at most one dropped field per pass.
+    for _ in range(len(working) + 1):
+        if not working:
+            raise AirtableError(
+                f"Could not update a record in the {table!r} table: none of the "
+                f"expected fields exist there. Check the column names in Airtable "
+                f"or set the AIRTABLE_FIELD_* environment overrides."
+            )
+
+        try:
+            response = httpx.patch(
+                url,
+                headers=headers,
+                json={"fields": working, "typecast": True},
+                timeout=REQUEST_TIMEOUT_SECONDS,
+            )
+        except httpx.RequestError as exc:
+            raise AirtableError(
+                f"Could not reach Airtable to update {table!r} (network error): {exc}."
+            )
+
+        if response.is_success:
+            return record_id
+
+        if _drop_rejected_field(response, working, table):
+            continue
+
+        raise AirtableError(_error_message(response))
+
+    raise AirtableError(f"Could not update a record in the {table!r} table after retries.")
 
 
 def _list_records(table: str) -> list[dict]:
@@ -518,6 +651,86 @@ def get_posts() -> list[dict]:
             }
         )
     return posts
+
+
+def upsert_lead_record(
+    tracking_id: str,
+    interested_listing: str,
+    status: str,
+    budget_signal: str | None,
+    timeline_signal: str | None,
+    transcript: str,
+) -> str:
+    """
+    Create or update the Leads row for a chatbot conversation.
+
+    One row per ``tracking_id``: the first message of a conversation creates
+    it, every message after that patches the same row, so the Leads table shows
+    the current state of each lead rather than one row per chat turn. We find
+    the existing row by listing the table and matching client-side, the same
+    way get_posts() reads Posts - no formula parameter to get wrong, and the
+    Leads table is small.
+
+    "Source" is always written as "Chatbot". "Name" and "Contact" are never
+    touched: the assistant is instructed not to ask for them, so whatever a
+    human has typed into those columns survives every update.
+
+    NOTE: as the base stands today, "Interested Listing" is a linked-record
+    column pointing at the Properties table, whose primary field is a computed
+    autonumber - so Airtable can neither match nor create a row there from a
+    condo name, and the write of that one field is dropped with a logged
+    warning (see _drop_rejected_field). Everything else on the row still
+    lands, and the listing stays recoverable from the tracking id. Making the
+    condo name stick needs a change in Airtable, not here: either retype
+    "Interested Listing" as a plain text field, or give Properties a
+    non-computed primary field and populate it from room_listings.csv.
+
+    Args:
+        tracking_id:        The id from the lead's tracking link - the key this
+            row is matched on. A blank id skips the lookup and creates a row.
+        interested_listing: The property they're asking about (the condo name,
+            or "Unknown" when the tracking id maps to no listing).
+        status:             "lead" or "prospect", from lead_chatbot.qualify_lead.
+        budget_signal:      What they've revealed about budget, or None.
+        timeline_signal:    What they've revealed about move-in timing, or None.
+        transcript:         The whole conversation so far, as plain text.
+
+    Returns:
+        The Airtable record id of the created or updated row.
+
+    Raises:
+        AirtableError: for missing credentials, a network error, or Airtable
+            rejecting the write. Callers treat lead logging as best-effort -
+            a chat reply must still reach the user when this fails.
+    """
+    names = _leads_fields()
+    tracking_id = (tracking_id or "").strip()
+
+    fields = {
+        names["tracking_id"]: tracking_id or None,
+        names["interested_listing"]: interested_listing,
+        names["source"]: "Chatbot",
+        names["status"]: status,
+        names["budget_signal"]: budget_signal,
+        names["timeline_signal"]: timeline_signal,
+        names["transcript"]: transcript,
+    }
+
+    table = _leads_table()
+
+    # Without a tracking id there's nothing to match on, so this can only ever
+    # be a new row.
+    if tracking_id:
+        existing_id = None
+        for record in _list_records(table):
+            value = _read_field(record.get("fields", {}), names["tracking_id"], "tracking")
+            if value is not None and str(value).strip() == tracking_id:
+                existing_id = record.get("id")
+                break
+        if existing_id:
+            return _update_record(table, existing_id, fields)
+
+    return _create_record(table, fields)
 
 
 def get_style_performance() -> dict[str, float]:

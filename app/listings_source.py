@@ -12,11 +12,15 @@ room_type. The CSV contains genuine duplicate name+type rows (e.g. "Nexus
 Residency, Medium" appears 3 times), so a name-based identifier would cause
 publishing one duplicate to silently mark its siblings as already-posted too.
 
-The two public entry points:
+The public entry points:
 
     next_unposted_listing(posted_indices, after=None) -> Listing | None
         The first listing not in `posted_indices`, optionally strictly after
         row index `after` (used by the dashboard's Skip button).
+
+    get_listing(row_index) -> Listing | None
+        The listing at a given row index, for turning a published post's
+        recorded row index back into the property's details.
 
     random_pool_photo() -> str
         A random file path from the demo photo pool.
@@ -123,6 +127,21 @@ def next_unposted_listing(posted_indices: set[int], after: int | None = None) ->
         if listing.row_index in posted_indices:
             continue
         return listing
+    return None
+
+
+def get_listing(row_index: int) -> Listing | None:
+    """
+    The listing at `row_index`, or None if there's no such row.
+
+    Used by the lead-facing endpoints (/listing-info, /chat) to turn the row
+    index recorded against a tracking id back into the property's real details.
+    Re-reads the CSV via load_listings() like every other entry point here -
+    178 rows is cheap, and it keeps the file the single source of truth.
+    """
+    for listing in load_listings():
+        if listing.row_index == row_index:
+            return listing
     return None
 
 

@@ -44,6 +44,14 @@ CLICKS_FILE = DATA_DIR / "tracking_clicks.json"
 # without depending on Airtable's schema.
 LINKS_FILE = DATA_DIR / "post_links.json"
 
+# Maps a tracking_id -> the room_listings.csv row index the post was built from.
+# Recorded at publish time (auto-ready flow only) so the landing page a lead
+# clicks through to, and the chatbot that answers their questions there, can
+# both tell WHICH property they're actually asking about. The tracking id is the
+# only thing the /t/{id} link carries, so this is the bridge from that id back
+# to the listing's real details.
+TRACKING_LISTINGS_FILE = DATA_DIR / "tracking_listings.json"
+
 _lock = threading.Lock()
 
 
@@ -165,3 +173,73 @@ def tracking_id_for_post(facebook_post_id: str) -> str | None:
         return None
     with _lock:
         return _load_links().get(facebook_post_id)
+
+
+def _load_tracking_listings() -> dict[str, int]:
+    """Load the tracking_id -> row_index map, tolerating a missing/corrupt file."""
+    try:
+        with TRACKING_LISTINGS_FILE.open("r", encoding="utf-8") as handle:
+            data = json.load(handle)
+    except (OSError, ValueError):
+        return {}
+
+    if not isinstance(data, dict):
+        return {}
+
+    listings: dict[str, int] = {}
+    for key, value in data.items():
+        try:
+            listings[str(key)] = int(value)
+        except (TypeError, ValueError):
+            continue
+    return listings
+
+
+def _save_tracking_listings(listings: dict[str, int]) -> None:
+    """Persist the tracking-listing map via a temp-file-then-rename."""
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    tmp = TRACKING_LISTINGS_FILE.with_name(TRACKING_LISTINGS_FILE.name + ".tmp")
+    with tmp.open("w", encoding="utf-8") as handle:
+        json.dump(listings, handle)
+    tmp.replace(TRACKING_LISTINGS_FILE)
+
+
+def save_tracking_listing(tracking_id: str, row_index: int) -> None:
+    """
+    Remember which room_listings.csv row a ``tracking_id`` was published for.
+
+    Called at publish time, right after the post link is recorded. Lets
+    /listing-info and /chat resolve the listing a lead is looking at from the
+    tracking id in their URL. A blank id or an unusable row index is ignored;
+    a persistence failure is logged, not raised - publishing must never fail
+    because this bookkeeping file couldn't be written.
+    """
+    tracking_id = (tracking_id or "").strip()
+    if not tracking_id:
+        return
+    try:
+        row_index = int(row_index)
+    except (TypeError, ValueError):
+        return
+
+    with _lock:
+        listings = _load_tracking_listings()
+        listings[tracking_id] = row_index
+        try:
+            _save_tracking_listings(listings)
+        except OSError as exc:
+            logger.warning(
+                "Could not persist tracking listing %r -> %d: %s",
+                tracking_id,
+                row_index,
+                exc,
+            )
+
+
+def get_tracking_row_index(tracking_id: str) -> int | None:
+    """Return the listing row index recorded for a tracking_id, or None."""
+    tracking_id = (tracking_id or "").strip()
+    if not tracking_id:
+        return None
+    with _lock:
+        return _load_tracking_listings().get(tracking_id)

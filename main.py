@@ -12,6 +12,8 @@ Endpoints:
   POST /generate-poster - returns the poster PNG directly
   POST /create-post   - returns poster (base64) + Claude-written caption as JSON
   POST /publish-post  - publishes a poster + caption to a Facebook Page
+  GET  /listing-info/{tracking_id} - the listing behind a tracking link, as JSON
+  POST /chat          - AI leasing assistant for a lead on the listing page
   POST /sync-engagement - refreshes engagement stats (requires X-Sync-Secret header)
 """
 
@@ -25,6 +27,7 @@ import shutil
 import tempfile
 import uuid
 from pathlib import Path
+from urllib.parse import quote
 
 from dotenv import load_dotenv
 from fastapi import Body, FastAPI, File, Form, Header, HTTPException, Query, UploadFile
@@ -66,8 +69,9 @@ except ImportError:
 # namespace and cannot shadow the `app = FastAPI()` instance below.
 from app.poster_generator import GRID_TEMPLATE_MIN_PHOTOS, check_photos, generate_poster
 from app.copy_generator import STYLE_TAGS, CaptionError, generate_caption
+from app.lead_chatbot import ChatError, qualify_lead
 from app.trend_research import research_trend
-from app.listings_source import next_unposted_listing, random_pool_photo
+from app.listings_source import get_listing, next_unposted_listing, random_pool_photo
 from app.facebook_publisher import (
     FacebookPublishError,
     get_post_engagement,
@@ -75,8 +79,10 @@ from app.facebook_publisher import (
 )
 from app.click_tracker import (
     get_clicks,
+    get_tracking_row_index,
     link_post,
     record_click,
+    save_tracking_listing,
     tracking_id_for_post,
 )
 from app.airtable_client import (
@@ -85,6 +91,7 @@ from app.airtable_client import (
     get_posts,
     get_style_performance,
     log_engagement,
+    upsert_lead_record,
 )
 
 logger = logging.getLogger("propvibe.main")
@@ -179,9 +186,63 @@ def track_click(tracking_id: str):
     fast, and independent of Airtable being reachable - then 302 them on to the
     placeholder listing page. /sync-engagement later folds these click counts
     into each post's Airtable engagement row.
+
+    The tracking id rides along to the landing page as ``?tid=`` so the page
+    (and the chatbot on it) can look up WHICH listing this lead clicked
+    through from - see /listing-info and /chat.
     """
     record_click(tracking_id)
-    return RedirectResponse(url="/listing", status_code=302)
+    # quote() so a hand-crafted id with '#' or '&' in it can't mangle the query
+    # string; a real token_urlsafe id passes through unchanged.
+    return RedirectResponse(url=f"/listing?tid={quote(tracking_id)}", status_code=302)
+
+
+def _listing_context(tracking_id: str) -> dict | None:
+    """
+    The listing a tracking link was published for, as a plain dict, or None.
+
+    Two hops: tracking_id -> row index (recorded locally at publish time by
+    app.click_tracker) -> Listing (re-read from room_listings.csv). Returns
+    None whenever either hop comes up empty - an unrecognised id, a post from
+    before we recorded listing indices, or a row that has since left the CSV.
+    Shared by /listing-info and /chat so the two can never disagree about
+    which property a lead is looking at.
+    """
+    row_index = get_tracking_row_index(tracking_id)
+    if row_index is None:
+        return None
+
+    listing = get_listing(row_index)
+    if listing is None:
+        return None
+
+    return {
+        "condo_name": listing.condo_name,
+        "price": listing.price,
+        "address": listing.address,
+        "features_text": listing.features_text,
+    }
+
+
+@app.get("/listing-info/{tracking_id}")
+def listing_info(tracking_id: str):
+    """
+    The listing details behind a tracking link, for the landing page to render.
+
+    Returns JSON::
+
+        {"found": true, "condo_name": "...", "price": "RM 1,000",
+         "address": "...", "features_text": "Master, Queen bed, ..."}
+
+    A tracking id we have no listing for is NOT a 404 - it returns
+    ``{"found": false}`` so the page can quietly fall back to generic copy.
+    Only a genuinely unrecognised link should look like an error, and from a
+    lead's point of view an old post isn't one.
+    """
+    context = _listing_context(tracking_id)
+    if context is None:
+        return {"found": False}
+    return {"found": True, **context}
 
 
 def _parse_count(raw: str | None, field: str) -> int:
@@ -837,6 +898,13 @@ def publish_post_endpoint(payload: dict = Body(...)):
     # before the Airtable write so the link survives even if that write fails.
     link_post(result["post_id"], tracking_id)
 
+    # Also remember which listing this tracking id belongs to (auto-ready flow
+    # only - the manual form has no row index). This is what lets /listing-info
+    # and /chat tell a lead who clicks the link WHICH property they're looking
+    # at, instead of falling back to generic copy.
+    if listing_row_index is not None:
+        save_tracking_listing(tracking_id, listing_row_index)
+
     response = {
         "post_id": result["post_id"],
         "post_url": result["post_url"],
@@ -869,6 +937,109 @@ def publish_post_endpoint(payload: dict = Body(...)):
         response["note"] = f"Post published to Facebook, but Airtable logging failed: {exc}"
 
     return response
+
+
+def _build_transcript(history: list, message: str, reply: str) -> str:
+    """
+    Flatten the conversation into the plain text we store in Airtable.
+
+    One labelled line per turn ("Lead:" / "Assistant:"), oldest first, ending
+    with the exchange we just had. History arrives straight off a JSON body, so
+    anything that isn't a {role, content} pair of strings is skipped rather
+    than trusted - same defensiveness as lead_chatbot._clean_history.
+    """
+    lines: list[str] = []
+    for item in history or []:
+        if not isinstance(item, dict):
+            continue
+        role = item.get("role")
+        content = item.get("content")
+        if role not in ("user", "assistant"):
+            continue
+        if not isinstance(content, str) or not content.strip():
+            continue
+        speaker = "Lead" if role == "user" else "Assistant"
+        lines.append(f"{speaker}: {content.strip()}")
+
+    lines.append(f"Lead: {message}")
+    lines.append(f"Assistant: {reply}")
+    return "\n".join(lines)
+
+
+@app.post("/chat")
+# `def`, not `async def` - same reasoning as /create-post: the Claude call and
+# the Airtable read/write are blocking and there is no `await` here, so as an
+# async endpoint one slow chat turn would stall every other request.
+def chat_endpoint(payload: dict = Body(...)):
+    """
+    Answer a lead's chat message on the listing page and record the lead.
+
+    Send JSON:
+
+        {
+          "tracking_id": "ab12cd34",       # from the ?tid= on the landing page
+          "message":     "Is parking included?",
+          "history":     [{"role": "user", "content": "..."}, ...]  # optional
+        }
+
+    We resolve which listing the tracking id was published for (same lookup as
+    /listing-info) and hand that context to the assistant so it can talk about
+    the actual property; an unknown id just means it stays general.
+
+    Alongside the reply, the assistant reports a qualification `status` and
+    what it has picked up about the lead's budget and move-in timeline. The
+    signals are written to the Airtable Leads table - one row per tracking id,
+    updated as the conversation goes - but deliberately NOT returned here: the
+    lead should never see that they're being scored. Airtable logging is
+    best-effort; if it fails we log a warning and still answer.
+
+    Returns JSON::
+
+        {"reply": "<what to say back>", "status": "lead" | "prospect"}
+
+    A failure from the assistant itself comes back as a clean 502 carrying the
+    underlying message, the same shape as /create-post's caption failures.
+    """
+    raw_message = payload.get("message")
+    message = _require_text(raw_message if isinstance(raw_message, str) else None, "message")
+
+    tracking_id = payload.get("tracking_id")
+    tracking_id = tracking_id.strip() if isinstance(tracking_id, str) else ""
+
+    history = payload.get("history")
+    if history is None:
+        history = []
+    if not isinstance(history, list):
+        raise HTTPException(status_code=400, detail="'history' must be a list.")
+
+    listing_context = _listing_context(tracking_id)
+
+    try:
+        result = qualify_lead(history, message, listing_context)
+    except ChatError as exc:
+        raise HTTPException(status_code=502, detail=str(exc))
+
+    # Recording the lead is bookkeeping - the reply is what the person on the
+    # other end is waiting for, so an Airtable problem must never cost them it.
+    try:
+        upsert_lead_record(
+            tracking_id=tracking_id,
+            interested_listing=(
+                listing_context["condo_name"] if listing_context else "Unknown"
+            ),
+            status=result["status"],
+            budget_signal=result["budget_signal"],
+            timeline_signal=result["timeline_signal"],
+            transcript=_build_transcript(history, message, result["reply"]),
+        )
+    except AirtableError as exc:
+        logger.warning(
+            "Airtable lead logging failed for tracking_id %r: %s",
+            tracking_id or None,
+            exc,
+        )
+
+    return {"reply": result["reply"], "status": result["status"]}
 
 
 @app.post("/sync-engagement")

@@ -33,10 +33,18 @@
     style.id = "photo-widget-styles";
     style.textContent = `
       #photo-widget .toggle-cell {
-        font-size: 12px; padding: 8px 4px; border: 1px solid var(--line); border-radius: 6px;
-        background: #eef1f6; color: var(--navy); cursor: pointer; text-transform: capitalize;
+        font-size: 12px; padding: 8px 4px; border: 1px solid var(--line);
+        border-radius: var(--radius-sm);
+        background: var(--chip); color: var(--navy); cursor: pointer; text-transform: capitalize;
+        transition: border-color var(--dur-fast) var(--ease), transform var(--dur-fast) var(--ease),
+                    box-shadow var(--dur-fast) var(--ease), background var(--dur-fast) var(--ease);
       }
-      #photo-widget .toggle-cell.active { background: var(--navy); color: #fff; }
+      #photo-widget .toggle-cell:hover:not(:disabled) {
+        border-color: var(--navy); transform: translateY(-1px); box-shadow: var(--shadow-sm);
+      }
+      #photo-widget .toggle-cell.active {
+        background: var(--navy); color: #fff; border-color: var(--navy);
+      }
       #photo-widget .toggle-cell:disabled { opacity: 0.55; cursor: not-allowed; }
     `;
     document.head.appendChild(style);

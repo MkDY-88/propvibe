@@ -19,6 +19,7 @@ Endpoints:
   GET  /internal-dashboard - internal read-only sales-flow view (secret-gated)
   GET  /daily-report  - end-of-day numbers + AI-written summary, as JSON
   GET  /report        - the page that renders /daily-report (static HTML)
+  GET  /public-stats  - aggregate-only live totals for the landing page (no auth)
 """
 
 import base64
@@ -29,6 +30,7 @@ import random
 import secrets
 import shutil
 import tempfile
+import time
 import uuid
 from pathlib import Path
 from urllib.parse import quote
@@ -114,6 +116,7 @@ from app.click_tracker import (
     record_click,
     save_tracking_listing,
     save_tracking_photo,
+    total_clicks,
     tracking_id_for_post,
 )
 from app.airtable_client import (
@@ -122,6 +125,9 @@ from app.airtable_client import (
     create_post_record,
     get_photo_condition_cache_entries,
     get_posts,
+    # Aliased: bare `is_configured` would read ambiguously in this module, which
+    # talks to Airtable, Facebook and fal.ai.
+    is_configured as airtable_is_configured,
     log_engagement,
     save_cached_photo_condition,
     upsert_lead_record,
@@ -1856,3 +1862,102 @@ def daily_report():
         summary_error = str(exc)
 
     return {"data": data, "summary": summary, "summary_error": summary_error}
+
+
+# ---------------------------------------------------------------------------
+# Public stats - the live numbers the landing page hero counts up
+# ---------------------------------------------------------------------------
+#
+# UNAUTHENTICATED BY DESIGN, AND AGGREGATE-ONLY BY DESIGN.
+#
+# The landing page is public, so anything it fetches has to be public too. That
+# makes the shape of this response a deliberate decision rather than a
+# convenience: it returns three whole-system totals and nothing else. No
+# per-post rows, no per-listing breakdown, no lead or engagement records, no
+# tracking ids. It is emphatically NOT a public mirror of
+# /internal-dashboard/data - that stays secret-gated, and nothing here reads,
+# imports or needs INTERNAL_DASHBOARD_SECRET.
+#
+# It is also deliberately NOT /daily-report: that endpoint calls Claude to write
+# prose, which costs money and takes seconds. A landing page hit must not do
+# either, so this assembles the same underlying numbers and stops there.
+
+# How long an assembled snapshot is reused before we read Airtable again. The
+# landing page is the most-hit route in the app and these numbers move slowly
+# (a post at a time), so a short cache keeps a burst of visitors from turning
+# into a burst of Airtable reads. Small enough that the page still reads as live.
+PUBLIC_STATS_TTL_SECONDS = 60
+
+# (monotonic_deadline, payload) for the cached snapshot, or None before the
+# first successful assembly. Module-level rather than functools.lru_cache
+# because we need time-based expiry, not value-based memoisation.
+_public_stats_cache: tuple[float, dict] | None = None
+
+
+def _assemble_public_stats() -> dict:
+    """
+    The three public totals, read fresh.
+
+    Never raises: each read is guarded independently so one unavailable source
+    degrades that single number to its zero/None rather than failing the whole
+    response. ``airtable_configured`` lets the page tell "genuinely zero so far"
+    apart from "the backend isn't wired up", so it can stay honest either way
+    instead of advertising a confident 0.
+    """
+    configured = airtable_is_configured()
+
+    posts_published = 0
+    if configured:
+        try:
+            posts_published = len(get_posts())
+        except AirtableError as exc:
+            logger.warning("Public stats could not read Posts: %s", exc)
+
+    # Local file read, and already best-effort internally - a missing counts
+    # file reads as 0.
+    clicks_tracked = total_clicks()
+
+    # Same single source of truth as /create-post's caption hint and the daily
+    # report, so the landing page can never claim a different winner than the
+    # system is actually using. Returns None when there's no engagement yet.
+    winning_style = best_performing_style()
+
+    return {
+        "posts_published": posts_published,
+        "clicks_tracked": clicks_tracked,
+        "winning_style": winning_style,
+        "airtable_configured": configured,
+    }
+
+
+@app.get("/public-stats")
+# Deliberately `def`, not `async def`, for the same reason as /create-post: the
+# Airtable reads underneath are blocking sync httpx, so a plain def runs this on
+# FastAPI's threadpool instead of stalling the event loop.
+def public_stats():
+    """
+    Whole-system totals for the public landing page hero. No auth, no secrets.
+
+    Returns::
+
+        {
+          "posts_published": 6,       # rows in the Airtable Posts table
+          "clicks_tracked": 10,       # every tracking-link hit, summed
+          "winning_style": "Warm",    # or null when no engagement is synced yet
+          "airtable_configured": true
+        }
+
+    Aggregates only - see the module comment above for why that boundary is
+    drawn where it is. Served from a short in-process cache
+    (``PUBLIC_STATS_TTL_SECONDS``) and never 500s: an unreadable source degrades
+    to 0 / null so the hero always has something honest to render.
+    """
+    global _public_stats_cache
+
+    now = time.monotonic()
+    if _public_stats_cache is not None and now < _public_stats_cache[0]:
+        return _public_stats_cache[1]
+
+    stats = _assemble_public_stats()
+    _public_stats_cache = (now + PUBLIC_STATS_TTL_SECONDS, stats)
+    return stats

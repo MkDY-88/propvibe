@@ -1,0 +1,295 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>PropVibe - Mascot Video Studio</title>
+  <!-- Dev-only page. Not linked from any nav; reachable only by typing
+       /mascot-studio. Deliberately self-contained (no shared CSS/JS file, no
+       font CDN) so it cannot affect any existing page. Colour tokens are
+       copied from the shared PropVibe design system so it still looks native. -->
+  <style>
+    :root {
+      --navy: #1a2b4c; --navy-deep: #14213a;
+      --gold: #d4af37; --gold-deep: #a8842a;
+      --gray: #4a5568; --line: #e2e8f0; --ink: #1a202c;
+      --bg: #f6f7f9; --card: #ffffff; --faint: #94a3b8;
+      --radius: 10px; --radius-lg: 16px;
+      --shadow-md: 0 2px 4px rgba(20, 33, 58, 0.05), 0 12px 28px rgba(20, 33, 58, 0.09);
+      --font-body: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; padding: 32px 20px 64px;
+      background: var(--bg); color: var(--ink);
+      font-family: var(--font-body); line-height: 1.5;
+    }
+    .wrap { max-width: 760px; margin: 0 auto; }
+    header { display: flex; align-items: center; gap: 14px; margin-bottom: 4px; }
+    header img { width: 44px; height: 44px; object-fit: contain; }
+    h1 { font-size: 22px; margin: 0; letter-spacing: -0.01em; }
+    .sub { color: var(--gray); font-size: 13px; margin: 0 0 24px 58px; }
+    .card {
+      background: var(--card); border: 1px solid var(--line);
+      border-radius: var(--radius-lg); box-shadow: var(--shadow-md);
+      padding: 22px; margin-bottom: 18px;
+    }
+    label { display: block; font-size: 12px; font-weight: 600; text-transform: uppercase;
+            letter-spacing: 0.04em; color: var(--gray); margin-bottom: 6px; }
+    select, input[type="text"] {
+      width: 100%; padding: 11px 12px; font: inherit; color: var(--ink);
+      background: #fff; border: 1px solid var(--line); border-radius: var(--radius);
+    }
+    select:focus, input[type="text"]:focus { outline: 2px solid rgba(26,43,76,0.25); outline-offset: 1px; }
+    .field { margin-bottom: 18px; }
+    .field:last-child { margin-bottom: 0; }
+    .hint { font-size: 12px; color: var(--faint); margin-top: 5px; }
+    .row { display: flex; gap: 18px; align-items: flex-start; }
+    .row > div:first-child { flex: 1; min-width: 0; }
+    .thumb {
+      width: 132px; height: 100px; border-radius: var(--radius);
+      border: 1px solid var(--line); object-fit: cover; background: #eef1f6;
+      flex: none;
+    }
+    button {
+      font: inherit; font-weight: 600; padding: 12px 22px; border: none;
+      border-radius: var(--radius); background: var(--navy); color: #fff;
+      cursor: pointer;
+    }
+    button:hover:not(:disabled) { background: var(--navy-deep); }
+    button:disabled { background: #c3cad6; cursor: not-allowed; }
+    .counter {
+      display: flex; align-items: center; justify-content: space-between;
+      gap: 16px; flex-wrap: wrap;
+    }
+    .counter strong { font-size: 15px; }
+    .bar { height: 6px; background: var(--line); border-radius: 3px; overflow: hidden; flex: 1; min-width: 140px; }
+    .bar > i { display: block; height: 100%; background: var(--gold); width: 0; transition: width 0.3s; }
+    .badge {
+      display: inline-block; font-size: 11px; font-weight: 700; text-transform: uppercase;
+      letter-spacing: 0.05em; padding: 4px 9px; border-radius: 999px;
+    }
+    .badge.cached { background: #e8f5ee; color: #1c6b42; }
+    .badge.fresh { background: #fbf7e8; color: var(--gold-deep); }
+    .msg { padding: 12px 14px; border-radius: var(--radius); font-size: 14px; margin-top: 16px; }
+    .msg.error { background: #fdecec; color: #8c2020; border: 1px solid #f5c6c6; }
+    .msg.capped { background: #fbf7e8; color: var(--gold-deep); border: 1px solid #efe0b0; }
+    .spinner {
+      display: inline-block; width: 15px; height: 15px; vertical-align: -2px;
+      border: 2px solid rgba(26,43,76,0.2); border-top-color: var(--navy);
+      border-radius: 50%; animation: spin 0.8s linear infinite; margin-right: 8px;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    @media (prefers-reduced-motion: reduce) { .spinner { animation-duration: 3s; } }
+    video { width: 100%; border-radius: var(--radius); background: #000; display: block; }
+    .result-head { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+    .result-head h2 { font-size: 15px; margin: 0; flex: 1; }
+    a.dl { font-size: 14px; font-weight: 600; color: var(--navy); text-decoration: none;
+           border: 1px solid var(--line); padding: 8px 14px; border-radius: var(--radius); }
+    a.dl:hover { border-color: var(--navy); }
+    .hidden { display: none; }
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <img id="mascot" alt="BeLive mascot" />
+    <h1>Mascot Video Studio</h1>
+  </header>
+  <p class="sub">Drop the BeLive mascot into a real listing photo and animate it. Kling 3.0 Pro, 3 seconds, no audio.</p>
+
+  <div class="card">
+    <div class="field row">
+      <div>
+        <label for="photo">Listing photo</label>
+        <select id="photo"></select>
+        <p class="hint">Ten demo pool photos, each labelled with a listing that uses it.</p>
+      </div>
+      <img class="thumb" id="preview" alt="" />
+    </div>
+
+    <div class="field">
+      <label for="action">What should the mascot do?</label>
+      <input id="action" type="text" maxlength="500"
+             placeholder="waves and points at the sign" />
+      <p class="hint">Free text. The exact wording is the cache key &mdash; re-running the same photo and
+         the same wording is free.</p>
+    </div>
+
+    <div class="field">
+      <button id="go">Generate video</button>
+    </div>
+
+    <div id="msg" class="msg hidden"></div>
+  </div>
+
+  <div class="card">
+    <div class="counter">
+      <strong id="count">&mdash; / &mdash; videos generated today</strong>
+      <div class="bar"><i id="fill"></i></div>
+    </div>
+  </div>
+
+  <div class="card hidden" id="result">
+    <div class="result-head">
+      <h2 id="resultTitle">Generated video</h2>
+      <span class="badge" id="badge"></span>
+      <a class="dl" id="download" href="#">Download MP4</a>
+    </div>
+    <video id="video" controls playsinline></video>
+  </div>
+</div>
+
+<script>
+  // Poll interval for a queued job. Kling 3.0 Pro takes a couple of minutes
+  // for a 3s clip, so a 4s poll is plenty and keeps the request count sane.
+  var POLL_MS = 4000;
+
+  var els = {
+    photo: document.getElementById('photo'),
+    preview: document.getElementById('preview'),
+    action: document.getElementById('action'),
+    go: document.getElementById('go'),
+    msg: document.getElementById('msg'),
+    count: document.getElementById('count'),
+    fill: document.getElementById('fill'),
+    result: document.getElementById('result'),
+    resultTitle: document.getElementById('resultTitle'),
+    badge: document.getElementById('badge'),
+    download: document.getElementById('download'),
+    video: document.getElementById('video'),
+    mascot: document.getElementById('mascot')
+  };
+
+  var capReached = false;
+  var busy = false;
+
+  function showMsg(text, kind) {
+    els.msg.textContent = text;
+    els.msg.className = 'msg ' + (kind || 'error');
+  }
+  function clearMsg() {
+    els.msg.className = 'msg hidden';
+    els.msg.textContent = '';
+  }
+  function setBusy(state) {
+    busy = state;
+    els.go.disabled = state || capReached;
+    els.go.textContent = state ? 'Generating…' : 'Generate video';
+  }
+
+  function renderBudget(budget) {
+    if (!budget) return;
+    els.count.textContent = budget.generated + ' / ' + budget.cap + ' videos generated today';
+    els.fill.style.width = Math.min(100, (budget.generated / budget.cap) * 100) + '%';
+    capReached = !!budget.cap_reached;
+    if (capReached) {
+      els.go.disabled = true;
+      if (els.msg.classList.contains('hidden')) {
+        showMsg('Daily cap reached — ' + budget.cap + ' videos generated. Generation is disabled. '
+              + 'Cached photo + action pairs still replay for free.', 'capped');
+      }
+    } else if (!busy) {
+      els.go.disabled = false;
+    }
+  }
+
+  function showResult(data) {
+    els.video.src = data.video_url;
+    els.download.href = data.download_url;
+    els.badge.textContent = data.cached ? 'Cached · no cost' : 'Newly generated';
+    els.badge.className = 'badge ' + (data.cached ? 'cached' : 'fresh');
+    els.resultTitle.textContent = data.cached
+      ? 'Served from cache — no API call, no charge'
+      : 'Generated video';
+    els.result.classList.remove('hidden');
+  }
+
+  function apiError(response) {
+    return response.json().then(function (body) {
+      throw new Error((body && body.detail) || ('Request failed (HTTP ' + response.status + ').'));
+    }, function () {
+      throw new Error('Request failed (HTTP ' + response.status + ').');
+    });
+  }
+
+  function poll(requestId) {
+    return fetch('/mascot-studio/status/' + encodeURIComponent(requestId))
+      .then(function (r) { return r.ok ? r.json() : apiError(r); })
+      .then(function (data) {
+        if (data.status === 'done') {
+          showResult(data);
+          // clearMsg before renderBudget, so that if this was the 20th video
+          // renderBudget's cap-reached message has a free slot to land in.
+          clearMsg();
+          renderBudget(data.budget);
+          return;
+        }
+        renderBudget(data.budget);
+        showMsg('Generating… fal.ai status: ' + (data.fal_status || 'working')
+                + '. This usually takes a couple of minutes.', 'capped');
+        els.msg.innerHTML = '<span class="spinner"></span>' + els.msg.textContent;
+        return new Promise(function (resolve) {
+          setTimeout(function () { resolve(poll(requestId)); }, POLL_MS);
+        });
+      });
+  }
+
+  els.go.addEventListener('click', function () {
+    if (busy || capReached) return;
+    var action = els.action.value.trim();
+    if (!action) { showMsg('Type what the mascot should do first.'); return; }
+
+    clearMsg();
+    els.result.classList.add('hidden');
+    setBusy(true);
+    showMsg('Submitting…', 'capped');
+
+    fetch('/mascot-studio/generate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ photo_filename: els.photo.value, action: action })
+    })
+      .then(function (r) { return r.ok ? r.json() : apiError(r); })
+      .then(function (data) {
+        // Cache hit - came back finished, no polling needed. Same ordering as
+        // poll()'s done branch: clear the status message first so that
+        // renderBudget's cap-reached message (if any) has somewhere to land.
+        if (data.status === 'done') {
+          clearMsg();
+          showResult(data);
+          renderBudget(data.budget);
+          return;
+        }
+        renderBudget(data.budget);
+        return poll(data.request_id);
+      })
+      .catch(function (err) { showMsg(err.message); })
+      // Runs on both paths - re-enables the button unless the cap was hit,
+      // which setBusy(false) honours via the `capReached` flag.
+      .then(function () { setBusy(false); });
+  });
+
+  els.photo.addEventListener('change', function () {
+    var option = els.photo.options[els.photo.selectedIndex];
+    els.preview.src = option ? option.dataset.preview : '';
+  });
+
+  fetch('/mascot-studio/photos')
+    .then(function (r) { return r.ok ? r.json() : apiError(r); })
+    .then(function (data) {
+      els.mascot.src = data.mascot_url;
+      data.photos.forEach(function (photo) {
+        var option = document.createElement('option');
+        option.value = photo.photo_filename;
+        option.textContent = photo.label;
+        option.dataset.preview = photo.preview_url;
+        els.photo.appendChild(option);
+      });
+      els.photo.dispatchEvent(new Event('change'));
+      renderBudget(data.budget);
+    })
+    .catch(function (err) { showMsg('Could not load the listing photos: ' + err.message); });
+</script>
+</body>
+</html>

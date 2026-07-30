@@ -41,6 +41,7 @@ from app.airtable_client import (
     get_leads,
     get_posts_detailed,
     get_style_performance,
+    group_engagement_by_post,
     is_configured,
 )
 from app.click_tracker import get_clicks, get_tracking_row_index
@@ -122,16 +123,9 @@ def _posts_and_engagement() -> tuple[list[dict], list[dict], str | None]:
         engagement = []
         engagement_error = str(exc)
 
-    # Airtable's createdTime is ISO-8601 UTC with a fixed layout, so plain
-    # string ordering is chronological - no parsing needed. A row with no
-    # createdTime sorts first and so loses to any dated row, which is right:
-    # we want the newest snapshot to win.
-    by_post: dict[str, list[dict]] = {}
-    for row in engagement:
-        for post_id in row["post_record_ids"]:
-            by_post.setdefault(post_id, []).append(row)
-    for rows in by_post.values():
-        rows.sort(key=lambda row: row.get("created_time") or "")
+    # Shared with /public-stats' whole-system click total, so the two can never
+    # disagree about which snapshot counts as a post's current engagement.
+    by_post = group_engagement_by_post(engagement)
 
     post_view: list[dict] = []
     post_by_id: dict[str, dict] = {}

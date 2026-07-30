@@ -116,7 +116,6 @@ from app.click_tracker import (
     record_click,
     save_tracking_listing,
     save_tracking_photo,
-    total_clicks,
     tracking_id_for_post,
 )
 from app.airtable_client import (
@@ -130,6 +129,7 @@ from app.airtable_client import (
     is_configured as airtable_is_configured,
     log_engagement,
     save_cached_photo_condition,
+    total_clicks_recorded,
     upsert_lead_record,
 )
 from app.internal_dashboard import collect_dashboard_data
@@ -1898,6 +1898,11 @@ def _assemble_public_stats() -> dict:
     """
     The three public totals, read fresh.
 
+    Every number here comes from Airtable, which is the point: these are the
+    figures a visitor sees first, so they have to be the ones that survive a
+    restart or a redeploy rather than whatever this particular process happens
+    to have accumulated since it booted.
+
     Never raises: each read is guarded independently so one unavailable source
     degrades that single number to its zero/None rather than failing the whole
     response. ``airtable_configured`` lets the page tell "genuinely zero so far"
@@ -1913,9 +1918,19 @@ def _assemble_public_stats() -> dict:
         except AirtableError as exc:
             logger.warning("Public stats could not read Posts: %s", exc)
 
-    # Local file read, and already best-effort internally - a missing counts
-    # file reads as 0.
-    clicks_tracked = total_clicks()
+    # Airtable, NOT app.click_tracker. The local counts file is an ephemeral
+    # staging buffer that /sync-engagement drains into Airtable - it resets on
+    # every restart and redeploy. Reading it here would put a reset-to-zero
+    # clicks figure next to a posts count that survived the restart, which is
+    # the one combination that makes the hero look broken rather than quiet.
+    # Same rollup the internal dashboard's clicks column uses, via the shared
+    # group_engagement_by_post() rule, so the two pages can't disagree.
+    clicks_tracked = 0
+    if configured:
+        try:
+            clicks_tracked = total_clicks_recorded()
+        except AirtableError as exc:
+            logger.warning("Public stats could not read Engagement: %s", exc)
 
     # Same single source of truth as /create-post's caption hint and the daily
     # report, so the landing page can never claim a different winner than the
@@ -1942,10 +1957,14 @@ def public_stats():
 
         {
           "posts_published": 6,       # rows in the Airtable Posts table
-          "clicks_tracked": 10,       # every tracking-link hit, summed
+          "clicks_tracked": 39,       # each post's latest synced click count, summed
           "winning_style": "Warm",    # or null when no engagement is synced yet
           "airtable_configured": true
         }
+
+    ``clicks_tracked`` is the synced Airtable figure, not the local counter, so
+    it can lag by up to one /sync-engagement run - a durable number that updates
+    on sync beats a live one that resets to zero on restart.
 
     Aggregates only - see the module comment above for why that boundary is
     drawn where it is. Served from a short in-process cache

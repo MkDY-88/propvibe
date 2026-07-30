@@ -82,7 +82,12 @@
     listing = payload;
 
     injectStyles();
-    document.querySelector("main").insertAdjacentHTML("afterbegin", markup());
+    // The listing page lays its cards out in two columns, so prepend into the
+    // left one rather than <main> - dropped straight into <main> the card would
+    // become a stray grid item beside the columns. Falls back to <main> so the
+    // widget still renders if that wrapper is ever renamed or removed.
+    const host = document.getElementById("listing-col") || document.querySelector("main");
+    host.insertAdjacentHTML("afterbegin", markup());
     document.getElementById("widget-photo").src = `/pool-photo/${encodeURIComponent(photoFilename)}`;
     document.getElementById("widget-toggle-grid").addEventListener("click", onToggle);
   }

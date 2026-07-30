@@ -20,6 +20,12 @@ can't corrupt the store.
 This is deliberately hackathon-grade: on an ephemeral filesystem (e.g. Railway)
 the counts reset on redeploy. That's fine for the demo loop - the durable record
 of engagement lives in Airtable.
+
+Which is why this store is a STAGING BUFFER, not a reporting source. Anything
+that displays a standing total (the landing-page hero, the internal dashboard,
+the daily report) must read the synced Airtable numbers instead - see
+``airtable_client.total_clicks_recorded()``. Reading a lifetime total from here
+would silently reset it on the next restart.
 """
 
 from __future__ import annotations
@@ -114,19 +120,6 @@ def get_clicks(tracking_id: str) -> int:
         return 0
     with _lock:
         return _load().get(tracking_id, 0)
-
-
-def total_clicks() -> int:
-    """
-    Every recorded click across every tracking link, summed.
-
-    An aggregate only - it deliberately returns a single number and never the
-    per-id breakdown, because its caller is the public landing page. Same
-    tolerance as the rest of this module: a missing or unreadable counts file
-    reads as 0 rather than raising.
-    """
-    with _lock:
-        return sum(_load().values())
 
 
 def _load_links() -> dict[str, str]:

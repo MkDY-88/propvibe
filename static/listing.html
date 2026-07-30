@@ -146,7 +146,20 @@
       font-family: var(--font-body);
       margin: 0; background: var(--bg); color: var(--ink); line-height: 1.5;
     }
-    main { max-width: 560px; margin: 0 auto; padding: 28px 24px 24px; }
+    main { max-width: 1100px; margin: 0 auto; padding: 28px 24px 24px; }
+    /* Same widening treatment as the dashboard's photo-toggle section, and
+       deliberately the same numbers (1100 / 5fr:4fr / 28px / 920px collapse)
+       rather than a second set tuned by eye - both pages pair a poster/photo
+       with the same lighting x weather toggle grid, so they should reflow at
+       the same point rather than each picking its own breakpoint. Desktop:
+       photo + its lighting/weather grid and the listing details on the left,
+       the chat on the right, so the assistant sits beside the property instead
+       of below the fold. Narrow screens collapse back to one 560px column. */
+    .result-grid { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 4fr); gap: 8px 28px; align-items: start; }
+    @media (max-width: 920px) {
+      main { max-width: 560px; }
+      .result-grid { grid-template-columns: minmax(0, 1fr); }
+    }
     /* The gold cap is applied here in CSS rather than via the shared .pv-accent
        class because listing-photo-widget.js injects a .card of its own that
        can't carry a class from this file - this way that card matches too. */
@@ -161,7 +174,9 @@
       background: linear-gradient(90deg, var(--gold) 0%, var(--gold) 30%,
                   rgba(212, 175, 55, 0.32) 72%, rgba(212, 175, 55, 0.08) 100%);
     }
-    .card:nth-of-type(2) { animation-delay: 0.08s; }
+    /* Stagger by column, so the fade-in reads left-then-right. Was
+       .card:nth-of-type(2) when the cards were one flat stack in <main>. */
+    .result-col:nth-child(2) .card { animation-delay: 0.08s; }
     .badge {
       display: inline-block; background: var(--gold-tint); color: var(--gold-deep);
       border: 1px solid var(--gold); border-radius: 999px;
@@ -263,35 +278,44 @@
   </header>
 
   <main>
-    <section class="card">
-      <span class="badge">Featured Listing</span>
+    <div class="result-grid">
+      <!-- listing-photo-widget.js prepends its photo card here (not to <main>),
+           so it lands above the details in this column instead of becoming a
+           stray grid item. -->
+      <div class="result-col" id="listing-col">
+        <section class="card">
+          <span class="badge">Featured Listing</span>
 
-      <div id="property" class="hidden">
-        <h2 class="listing-name" id="listing-name"></h2>
-        <p class="listing-address" id="listing-address"></p>
-        <p class="listing-price" id="listing-price"></p>
-        <p class="listing-features" id="listing-features"></p>
+          <div id="property" class="hidden">
+            <h2 class="listing-name" id="listing-name"></h2>
+            <p class="listing-address" id="listing-address"></p>
+            <p class="listing-price" id="listing-price"></p>
+            <p class="listing-features" id="listing-features"></p>
+          </div>
+
+          <div id="generic" class="hidden">
+            <h2 class="listing-name">Looking for a place?</h2>
+            <p class="generic-copy">
+              Tell us what you're after &mdash; budget, area, move-in date &mdash;
+              and we'll point you at the right listing. Just ask below.
+            </p>
+          </div>
+        </section>
       </div>
 
-      <div id="generic" class="hidden">
-        <h2 class="listing-name">Looking for a place?</h2>
-        <p class="generic-copy">
-          Tell us what you're after &mdash; budget, area, move-in date &mdash;
-          and we'll point you at the right listing. Just ask below.
-        </p>
+      <div class="result-col">
+        <section class="card">
+          <h2 class="chat-title">Ask us anything</h2>
+          <div class="chat-rule"></div>
+          <div id="messages"></div>
+          <form class="input-row" id="chat-form">
+            <input id="chat-input" type="text" autocomplete="off"
+                   placeholder="e.g. Is the price negotiable?" />
+            <button id="send-btn" type="submit">Send</button>
+          </form>
+        </section>
       </div>
-    </section>
-
-    <section class="card">
-      <h2 class="chat-title">Ask us anything</h2>
-      <div class="chat-rule"></div>
-      <div id="messages"></div>
-      <form class="input-row" id="chat-form">
-        <input id="chat-input" type="text" autocomplete="off"
-               placeholder="e.g. Is the price negotiable?" />
-        <button id="send-btn" type="submit">Send</button>
-      </form>
-    </section>
+    </div>
 
     <div class="foot">PropVibe &middot; automated real-estate social posting</div>
   </main>

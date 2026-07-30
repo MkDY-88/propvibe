@@ -13,6 +13,8 @@ Endpoints:
   POST /generate-poster - returns the poster PNG directly
   POST /create-post   - returns poster (base64) + Claude-written caption as JSON
   POST /publish-post  - publishes a poster + caption to a Facebook Page
+  GET  /browse        - public card grid of every posted listing (static HTML)
+  GET  /posted-listings - the data behind /browse: posted listings, as JSON
   GET  /listing-info/{tracking_id} - the listing behind a tracking link, as JSON
   POST /chat          - AI leasing assistant for a lead on the listing page
   POST /sync-engagement - refreshes engagement stats (requires X-Sync-Secret header)
@@ -99,6 +101,7 @@ from app.listings_source import (
     PHOTO_POOL_DIR,
     Listing,
     get_listing,
+    load_listings,
     next_unposted_listing,
     pool_photo_for_listing,
     search_listings,
@@ -213,6 +216,83 @@ def listing():
     return FileResponse(page, media_type="text/html")
 
 
+@app.get("/browse")
+def browse():
+    """Serve the public Browse page - a card grid of every posted listing."""
+    page = STATIC_DIR / "browse.html"
+    if not page.exists():
+        raise HTTPException(status_code=404, detail="Browse page not found.")
+    return FileResponse(page, media_type="text/html")
+
+
+@app.get("/posted-listings")
+def posted_listings_endpoint():
+    """
+    Every listing that has actually been published, for /browse's card grid.
+
+    "Posted" means an Airtable Posts row carrying BOTH a tracking id and a
+    listing row index - the same durable record /auto-create-post reads to
+    decide what is still un-posted, so the two views can never disagree. Rows
+    without either are skipped: no row index means no listing details to show
+    (the manual-upload flow), and no tracking id means no landing page to
+    link the card to.
+
+    Returns::
+
+        {"listings": [
+          {"tracking_id": "ab12cd34", "condo_name": "Sunway Serene",
+           "room_type": "Master", "price": "RM 1,000", "address": "..."},
+          ...
+        ]}
+
+    Each card links straight to /listing?tid=<tracking_id> - the real landing
+    page (photo, details, chat) a lead reaches from Facebook. Deliberately NOT
+    via /t/<id>: that route records a click, and browsing must not inflate
+    the engagement numbers.
+
+    A listing posted more than once appears once, under its most recent
+    post's tracking id. Zero posted listings is an empty list (the page's
+    honest "nothing posted yet" state); an unreadable Airtable is a 502,
+    kept distinct so an outage never masquerades as an empty catalogue.
+    """
+    try:
+        posts = get_posts()
+    except AirtableError as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Could not read the posted listings: {exc}",
+        )
+
+    # get_posts() returns rows in Airtable's creation order, so walking it
+    # reversed puts the newest posts first AND makes the first tracking id
+    # seen for a row index the most recent one - `seen` then drops the older
+    # duplicates of a re-posted listing.
+    listings_by_index = {listing.row_index: listing for listing in load_listings()}
+    seen: set[int] = set()
+    cards: list[dict] = []
+    for post in reversed(posts):
+        tracking_id = post.get("tracking_id")
+        row_index = post.get("listing_row_index")
+        if not tracking_id or row_index is None or row_index in seen:
+            continue
+        listing = listings_by_index.get(row_index)
+        if listing is None:
+            # A post whose row has since left the CSV - nothing to render.
+            continue
+        seen.add(row_index)
+        cards.append(
+            {
+                "tracking_id": tracking_id,
+                "condo_name": listing.condo_name,
+                "room_type": listing.room_type,
+                "price": listing.price,
+                "address": listing.address,
+            }
+        )
+
+    return {"listings": cards}
+
+
 @app.get("/privacy")
 def privacy():
     """Serve the privacy policy page (required for Facebook App Live mode)."""
@@ -252,18 +332,63 @@ def track_click(tracking_id: str):
     return RedirectResponse(url=f"/listing?tid={quote(tracking_id)}", status_code=302)
 
 
+def _row_index_for_tracking(tracking_id: str) -> int | None:
+    """
+    The room_listings.csv row index a tracking id was published for, or None.
+
+    The local map (app.click_tracker) is checked first - free, and covering
+    every post this process has published. On a miss we fall back to
+    Airtable's Posts table, which records the same tracking_id ->
+    listing_row_index pair durably at publish time: the local map lives on an
+    ephemeral disk and empties on every restart or redeploy, and without the
+    fallback every post published before the last restart greets its leads
+    with generic copy instead of the real listing - a degradation /browse
+    makes prominent, since its cards link straight to these pages. A
+    successful Airtable resolution is written back into the local map so the
+    next lookup for the same id stays local.
+
+    Best-effort on the Airtable leg: an unreadable table degrades to None
+    (generic copy), never an error - a lead's landing page must not 500 over
+    bookkeeping.
+    """
+    row_index = get_tracking_row_index(tracking_id)
+    if row_index is not None:
+        return row_index
+
+    if not (tracking_id or "").strip():
+        return None
+
+    try:
+        posts = get_posts()
+    except AirtableError as exc:
+        logger.warning(
+            "Could not resolve tracking id %r from Airtable: %s", tracking_id, exc
+        )
+        return None
+
+    for post in posts:
+        if (
+            post.get("tracking_id") == tracking_id
+            and post.get("listing_row_index") is not None
+        ):
+            save_tracking_listing(tracking_id, post["listing_row_index"])
+            return post["listing_row_index"]
+    return None
+
+
 def _listing_context(tracking_id: str) -> dict | None:
     """
     The listing a tracking link was published for, as a plain dict, or None.
 
-    Two hops: tracking_id -> row index (recorded locally at publish time by
-    app.click_tracker) -> Listing (re-read from room_listings.csv). Returns
-    None whenever either hop comes up empty - an unrecognised id, a post from
-    before we recorded listing indices, or a row that has since left the CSV.
-    Shared by /listing-info and /chat so the two can never disagree about
-    which property a lead is looking at.
+    Two hops: tracking_id -> row index (the local publish-time record, with a
+    durable Airtable fallback - see _row_index_for_tracking) -> Listing
+    (re-read from room_listings.csv). Returns None whenever either hop comes
+    up empty - an unrecognised id, a post from before we recorded listing
+    indices, or a row that has since left the CSV. Shared by /listing-info
+    and /chat so the two can never disagree about which property a lead is
+    looking at.
     """
-    row_index = get_tracking_row_index(tracking_id)
+    row_index = _row_index_for_tracking(tracking_id)
     if row_index is None:
         return None
 
@@ -308,7 +433,31 @@ def listing_info(tracking_id: str):
     context = _listing_context(tracking_id)
     if context is None:
         return {"found": False}
-    return {"found": True, **context, "photo_filename": get_tracking_photo(tracking_id)}
+    return {"found": True, **context, "photo_filename": _photo_for_tracking(tracking_id)}
+
+
+def _photo_for_tracking(tracking_id: str) -> str | None:
+    """
+    The pool photo to show on a tracking link's landing page, or None.
+
+    The filename recorded at publish time when we still have it. When that
+    local record has been lost (ephemeral disk - same story as
+    _row_index_for_tracking), the deterministic pool assignment for the
+    listing's row instead: pool_photo_for_listing() is exactly how
+    /auto-create-post picked the photo at publish time, so this reproduces
+    the photo the post really used rather than substituting a random one.
+    """
+    recorded = get_tracking_photo(tracking_id)
+    if recorded:
+        return recorded
+
+    row_index = _row_index_for_tracking(tracking_id)
+    if row_index is None:
+        return None
+    try:
+        return Path(pool_photo_for_listing(row_index)).name
+    except FileNotFoundError:
+        return None
 
 
 def _parse_count(raw: str | None, field: str) -> int:
@@ -685,6 +834,12 @@ def search_listings_endpoint(q: str = Query("")):
             {
                 "row_index": listing.row_index,
                 "condo_name": listing.condo_name,
+                # The distinguisher: the CSV holds several units per building
+                # ("Sunway Serene" x4), so name+price+address alone renders as
+                # near-identical rows. The dashboard shows this as
+                # "Condo Name — Room Type", the same header format the
+                # approve/skip card already uses.
+                "room_type": listing.room_type,
                 "price": listing.price,
                 "address": listing.address,
             }
@@ -1454,7 +1609,10 @@ def _alternatives_for(tracking_id: str, history: list, message: str) -> dict | N
         bed_type_keyword=intent["bed_type_keyword"],
         bathroom_type_keyword=intent["bathroom_type_keyword"],
         must_have_features=intent["must_have_features"],
-        exclude_row_index=get_tracking_row_index(tracking_id),
+        # Same durable resolution as _listing_context, so the property they
+        # are already looking at is excluded even after a restart wiped the
+        # local map.
+        exclude_row_index=_row_index_for_tracking(tracking_id),
         limit=MAX_ALTERNATIVES,
     )
     return {
@@ -1909,14 +2067,17 @@ def daily_report():
 
         {
           "data": {...},            # collect_report_data() output - see there
-          "summary": "...",         # Claude-written prose (or a fallback line)
+          "summary": {              # Claude-written, structured for skimming
+            "headline": "...",      # one-sentence TL;DR (or a fallback line)
+            "highlights": ["...", ...]   # 2-4 single-sentence bullets
+          },
           "summary_error": null,    # the ReportError message when it fell back
         }
 
     This endpoint never 500s over its dependencies: Airtable problems degrade
     inside collect_report_data (empty sections + an errors list), and a Claude
-    failure degrades to a clear "summary unavailable" line so the raw numbers
-    still come back.
+    failure degrades to a clear "summary unavailable" headline (with no
+    highlights) so the raw numbers still come back.
     """
     data = collect_report_data()
 
@@ -1925,10 +2086,13 @@ def daily_report():
         summary_error = None
     except ReportError as exc:
         logger.warning("Daily report summary unavailable: %s", exc)
-        summary = (
-            "The AI-written summary is unavailable right now - the numbers "
-            "here are still live. Refresh in a moment to try again."
-        )
+        summary = {
+            "headline": (
+                "The AI-written summary is unavailable right now - the numbers "
+                "here are still live. Refresh in a moment to try again."
+            ),
+            "highlights": [],
+        }
         summary_error = str(exc)
 
     return {"data": data, "summary": summary, "summary_error": summary_error}

@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>PropVibe - Business Model</title>
+  <title>PropVibe - Browse Listings</title>
   <!-- Display + body pairing (Fraunces / Plus Jakarta Sans). Loaded
        non-blocking on purpose - media="print" flipped to "all" on load - so a
        slow or unreachable CDN can never hold up first paint. If it never
@@ -144,50 +144,53 @@
 
     body {
       font-family: var(--font-body);
-      margin: 0; background: var(--bg); color: var(--ink); line-height: 1.65;
-      min-height: 100vh;
+      margin: 0; background: var(--bg); color: var(--ink); line-height: 1.5;
     }
-    .page { padding: 56px 24px; }
-    main.card {
+    main { max-width: 980px; margin: 0 auto; padding: 24px; animation: pv-fade-up var(--dur-slow) var(--ease) both; }
+
+    /* Card grid: one card per posted listing, whole card is the link. */
+    .grid {
+      display: grid; gap: 14px;
+      grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+    }
+    .listing-card {
+      display: flex; flex-direction: column; text-decoration: none;
       background: var(--card); border: 1px solid var(--line); border-radius: var(--radius-lg);
-      max-width: 720px; width: 100%; margin: 0 auto; padding: 44px 46px 40px;
-      box-shadow: var(--shadow-lg);
-      animation: pv-fade-up var(--dur-slow) var(--ease) both;
+      padding: 18px 20px; box-shadow: var(--shadow-md);
+      animation: pv-fade-up var(--dur) var(--ease) both;
     }
-    .badge {
-      display: inline-block; background: var(--gold-tint); color: var(--gold-deep);
-      border: 1px solid var(--gold); border-radius: 999px;
-      font-size: 11.5px; font-weight: 700; letter-spacing: 0.09em;
-      text-transform: uppercase; padding: 5px 13px; margin-bottom: 18px;
+    .listing-card .name {
+      font-family: var(--font-display); font-weight: 600; font-size: 17px;
+      letter-spacing: -0.01em; color: var(--navy); line-height: 1.3;
     }
-    h1 {
-      color: var(--navy); font-family: var(--font-display); font-weight: 600;
-      font-size: 34px; line-height: 1.15; letter-spacing: -0.02em; margin: 0 0 28px;
+    .listing-card .price {
+      margin-top: 8px; font-size: 15px; font-weight: 700; color: var(--gold-deep);
+      font-variant-numeric: tabular-nums;
     }
-    h2 {
-      color: var(--navy); font-family: var(--font-display); font-weight: 600;
-      font-size: 21px; letter-spacing: -0.01em; margin: 30px 0 8px;
+    .listing-card .address { margin-top: 4px; font-size: 12.5px; color: var(--gray); line-height: 1.45; }
+    .listing-card .view {
+      margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--line);
+      font-size: 12px; font-weight: 600; color: var(--navy);
     }
-    /* The gold motif at its smallest scale: a tick above each section heading. */
-    h2::before {
-      content: ""; display: block; width: 26px; height: 2px; margin-bottom: 11px;
-      border-radius: 2px;
-      background: linear-gradient(90deg, var(--gold), rgba(212, 175, 55, 0.18));
+    .listing-card .view::after { content: " \2192"; color: var(--gold-deep); }
+
+    .empty, .error-box { animation: pv-fade-up var(--dur) var(--ease) both; }
+    .empty {
+      background: var(--card); border: 1px dashed var(--line); border-radius: var(--radius-lg);
+      color: var(--gray); font-size: 14px; text-align: center; padding: 48px 20px;
     }
-    p { color: var(--gray); font-size: 15px; }
-    a { color: var(--navy); }
-    .cta {
-      display: inline-block; margin-top: 28px; background: var(--navy); color: #fff;
-      font-weight: 600; text-decoration: none; padding: 12px 22px; border-radius: 8px;
-      transition: background var(--dur-fast) var(--ease), transform var(--dur-fast) var(--ease),
-                  box-shadow var(--dur-fast) var(--ease);
+    .error-box {
+      padding: 12px 14px; background: #fdecec; border: 1px solid #f5b5b5;
+      border-radius: var(--radius-sm); color: #9b1c1c; font-size: 13px;
     }
-    .cta:hover { background: var(--navy-soft); transform: translateY(-2px); box-shadow: var(--shadow-lift); }
-    .cta:active { transform: translateY(0) scale(0.98); box-shadow: none; }
-    .foot {
-      margin-top: 24px; padding-top: 18px; border-top: 1px solid var(--line);
-      font-size: 12px; color: var(--faint);
+    .hidden { display: none; }
+    #loading { color: var(--gray); font-size: 14px; padding: 40px 12px; text-align: center; }
+    #loading::before {
+      content: ""; display: block; width: 28px; height: 28px; margin: 0 auto 14px;
+      border-radius: 50%; border: 3px solid var(--chip); border-top-color: var(--gold);
+      animation: pv-spin 0.8s linear infinite;
     }
+    footer { color: var(--gray); font-size: 12px; padding: 0 24px 28px; text-align: center; }
   </style>
 </head>
 <body>
@@ -197,67 +200,83 @@
       <a href="/">Home</a>
       <a href="/dashboard">Dashboard</a>
       <a href="/listing">Listing</a>
-      <a href="/browse">Browse</a>
+      <a href="/browse" aria-current="page">Browse</a>
       <a href="/internal-dashboard">Internal</a>
       <a href="/report">Report</a>
-      <a href="/business" aria-current="page">Business</a>
+      <a href="/business">Business</a>
       <a href="/privacy">Privacy</a>
     </div>
   </nav>
 
-  <div class="page">
-    <main class="card pv-accent">
-      <span class="badge">Business Model</span>
-      <h1>How PropVibe Works As a Business</h1>
+  <header class="page-head">
+    <h1>Browse Listings</h1>
+    <p>Every room PropVibe has posted so far &mdash; open one to see its details and ask the assistant anything.</p>
+  </header>
 
-      <h2>The problem</h2>
-      <p>
-        Every property agent posts on social media. Almost none of them know
-        whether what they posted actually worked &mdash; and even when they do,
-        nothing about their process improves tomorrow because of it. Marketing
-        stays static while the market moves.
-      </p>
+  <main>
+    <p id="loading">Loading the posted listings&hellip;</p>
+    <div id="error" class="error-box hidden"></div>
+    <div id="empty" class="empty hidden">
+      Nothing has been posted yet. Once a listing goes out from the dashboard, it will show up here.
+    </div>
+    <div id="grid" class="grid hidden"></div>
+  </main>
 
-      <h2>Who it's for</h2>
-      <p>
-        Individual agents and small agencies &mdash; not large enterprise firms.
-        This is the &ldquo;AI Solopreneur&rdquo; model applied directly: one
-        person, running the marketing output of a full team, through one system.
-      </p>
+  <footer>PropVibe &middot; only listings that have really been published appear here</footer>
 
-      <h2>How it makes money</h2>
-      <p>
-        A simple monthly subscription, priced by posting volume &mdash;
-        positioned well below the cost of even a part-time social media
-        assistant or freelance designer. Heavier users (more listings, more
-        posts) pay more; light users pay less. No large upfront cost, no
-        long-term contract required.
-      </p>
+  <script>
+    function el(tag, className, text) {
+      const node = document.createElement(tag);
+      if (className) node.className = className;
+      if (text !== undefined) node.textContent = text;
+      return node;
+    }
 
-      <h2>Why it scales</h2>
-      <p>
-        Every AI-driven step in this system &mdash; caption generation, poster
-        creation, lighting/weather image variants &mdash; is built cache-first:
-        each unique combination is generated once, ever, and reused after that.
-        This isn't just a performance choice, it's a deliberate cost-control
-        decision, so unit economics stay predictable per listing rather than
-        growing unbounded with usage. The backend itself is stateless per
-        request, so serving more agents doesn't require re-architecting
-        anything.
-      </p>
+    function renderCards(listings) {
+      const grid = document.getElementById('grid');
+      listings.forEach(function (item, index) {
+        const card = el('a', 'listing-card pv-lift pv-accent');
+        // The REAL landing page for this post (photo, details, chat), reached
+        // by tid directly - not via /t/<id>, which would count a click.
+        card.href = '/listing?tid=' + encodeURIComponent(item.tracking_id);
+        // Same "Condo Name — Room Type" format as the dashboard's card heading
+        // and search results, so duplicate units in one building stay distinct.
+        card.appendChild(el('div', 'name', item.room_type
+          ? item.condo_name + ' — ' + item.room_type
+          : item.condo_name));
+        card.appendChild(el('div', 'price', item.price));
+        card.appendChild(el('div', 'address', item.address));
+        card.appendChild(el('div', 'view', 'View details & chat'));
+        card.style.animationDelay = Math.min(index * 0.04, 0.4) + 's';
+        grid.appendChild(card);
+      });
+    }
 
-      <h2>On scope</h2>
-      <p>
-        Some of what we built goes beyond what a working agent strictly needs
-        day to day &mdash; we built it anyway, because it was part of the brief,
-        and because knowing what's essential versus what's a nice-to-have is
-        itself part of good product judgment. Everything extra is still built
-        to the same cost-bounded, cache-first standard as the core system.
-      </p>
-
-      <a class="cta" href="/">Back to PropVibe</a>
-      <div class="foot">PropVibe &middot; automated real-estate social posting</div>
-    </main>
-  </div>
+    fetch('/posted-listings')
+      .then(function (response) {
+        return response.json().catch(function () { return {}; }).then(function (payload) {
+          if (!response.ok) {
+            throw new Error(payload.detail || 'The server returned HTTP ' + response.status + '.');
+          }
+          return payload;
+        });
+      })
+      .then(function (payload) {
+        document.getElementById('loading').classList.add('hidden');
+        const listings = payload.listings || [];
+        if (!listings.length) {
+          document.getElementById('empty').classList.remove('hidden');
+          return;
+        }
+        renderCards(listings);
+        document.getElementById('grid').classList.remove('hidden');
+      })
+      .catch(function (error) {
+        document.getElementById('loading').classList.add('hidden');
+        const box = document.getElementById('error');
+        box.textContent = 'Could not load the listings: ' + error.message;
+        box.classList.remove('hidden');
+      });
+  </script>
 </body>
 </html>

@@ -216,11 +216,20 @@
     }
     .tag-best { background: var(--gold-tint); border: 1px solid var(--gold); }
 
-    /* AI summary prose */
+    /* AI summary: one prominent headline sentence, then scannable bullets. */
     #summary { font-size: 15px; }
-    #summary p { margin: 0 0 14px; animation: pv-fade-up var(--dur) var(--ease) both; }
-    #summary p:last-child { margin-bottom: 0; }
-    .summary-fallback { color: var(--gray); font-style: italic; }
+    .summary-headline {
+      margin: 0; font-family: var(--font-display); font-size: 19px; font-weight: 600;
+      letter-spacing: -0.01em; color: var(--navy); line-height: 1.4;
+      animation: pv-fade-up var(--dur) var(--ease) both;
+    }
+    .summary-highlights {
+      margin: 14px 0 0; padding-left: 20px; display: grid; gap: 9px;
+      animation: pv-fade-up var(--dur) var(--ease) both;
+    }
+    .summary-highlights li { padding-left: 4px; }
+    .summary-highlights li::marker { color: var(--gold); }
+    .summary-fallback { margin: 0; color: var(--gray); font-style: italic; }
 
     .error {
       margin-bottom: 16px; padding: 12px 14px; background: #fdecec;
@@ -245,6 +254,7 @@
       <a href="/">Home</a>
       <a href="/dashboard">Dashboard</a>
       <a href="/listing">Listing</a>
+      <a href="/browse">Browse</a>
       <a href="/internal-dashboard">Internal</a>
       <a href="/report" aria-current="page">Report</a>
       <a href="/business">Business</a>
@@ -364,11 +374,19 @@
     function renderSummary(payload) {
       const summary = document.getElementById('summary');
       const fallback = Boolean(payload.summary_error);
-      String(payload.summary || '').split(/\n\s*\n/).forEach(function (paragraph) {
-        if (paragraph.trim()) {
-          summary.appendChild(el('p', fallback ? 'summary-fallback' : '', paragraph.trim()));
-        }
-      });
+      const structured = payload.summary || {};
+      const headline = String(structured.headline || '').trim();
+      const highlights = Array.isArray(structured.highlights) ? structured.highlights : [];
+
+      if (headline) {
+        summary.appendChild(el('p', fallback ? 'summary-fallback' : 'summary-headline', headline));
+      }
+      const items = highlights.map(function (item) { return String(item).trim(); }).filter(Boolean);
+      if (items.length) {
+        const list = el('ul', 'summary-highlights');
+        items.forEach(function (item) { list.appendChild(el('li', '', item)); });
+        summary.appendChild(list);
+      }
       if (fallback) {
         const errors = document.getElementById('errors');
         errors.appendChild(el('div', 'error', 'AI summary failed: ' + payload.summary_error));

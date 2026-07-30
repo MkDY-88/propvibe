@@ -4,10 +4,11 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>PropVibe - Mascot Video Studio</title>
-  <!-- Dev-only page. Not linked from any nav; reachable only by typing
+  <!-- Reached from the shared site nav ("Mascot"), and directly at
        /mascot-studio. Deliberately self-contained (no shared CSS/JS file, no
-       font CDN) so it cannot affect any existing page. Colour tokens are
-       copied from the shared PropVibe design system so it still looks native. -->
+       font CDN) so it cannot affect any existing page. Colour tokens and the
+       .site-nav block are copied from the shared PropVibe design system so
+       this page matches the others; keep them in sync if that nav changes. -->
   <style>
     :root {
       --navy: #1a2b4c; --navy-deep: #14213a;
@@ -16,15 +17,51 @@
       --bg: #f6f7f9; --card: #ffffff; --faint: #94a3b8;
       --radius: 10px; --radius-lg: 16px;
       --shadow-md: 0 2px 4px rgba(20, 33, 58, 0.05), 0 12px 28px rgba(20, 33, 58, 0.09);
+      --shadow-gold: 0 4px 14px rgba(212, 175, 55, 0.3);
       --font-body: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      --font-display: "Fraunces", "Iowan Old Style", Georgia, "Times New Roman", serif;
+      --ease: cubic-bezier(0.33, 1, 0.68, 1);
+      --dur-fast: 0.16s;
     }
     * { box-sizing: border-box; }
     body {
-      margin: 0; padding: 32px 20px 64px;
+      margin: 0; padding: 0;
       background: var(--bg); color: var(--ink);
       font-family: var(--font-body); line-height: 1.5;
     }
-    .wrap { max-width: 760px; margin: 0 auto; }
+
+    /* ---- Shared site nav (mirrors static/*.html) ---- */
+    .site-nav {
+      position: relative; background: linear-gradient(180deg, #1b2c49 0%, var(--navy-deep) 100%);
+      display: flex; align-items: center; justify-content: space-between;
+      flex-wrap: wrap; gap: 8px 16px; padding: 13px 24px;
+    }
+    .site-nav::after {
+      content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 3px;
+      background: linear-gradient(90deg, var(--gold) 0%, var(--gold) 26%,
+                  rgba(212, 175, 55, 0.38) 64%, rgba(212, 175, 55, 0.1) 100%);
+    }
+    .site-nav .brand {
+      color: #fff; font-family: var(--font-display); font-weight: 600; font-size: 20px;
+      letter-spacing: -0.01em; text-decoration: none; position: relative;
+    }
+    .site-nav .brand span { color: var(--gold); }
+    .site-nav-links { display: flex; flex-wrap: wrap; gap: 4px; position: relative; }
+    .site-nav-links a {
+      color: rgba(255, 255, 255, 0.82); text-decoration: none; font-size: 13px;
+      font-weight: 600; padding: 7px 12px; border-radius: 999px;
+      transition: background var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease),
+                  box-shadow var(--dur-fast) var(--ease);
+    }
+    .site-nav-links a:hover { background: rgba(255, 255, 255, 0.14); color: #fff; }
+    .site-nav-links a[aria-current="page"] {
+      background: var(--gold); color: var(--navy-deep); box-shadow: var(--shadow-gold);
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .site-nav-links a { transition: none; }
+    }
+
+    .wrap { max-width: 760px; margin: 0 auto; padding: 32px 20px 64px; }
     header { display: flex; align-items: center; gap: 14px; margin-bottom: 4px; }
     header img { width: 44px; height: 44px; object-fit: contain; }
     h1 { font-size: 22px; margin: 0; letter-spacing: -0.01em; }
@@ -91,6 +128,21 @@
   </style>
 </head>
 <body>
+<nav class="site-nav">
+  <a class="brand" href="/">Prop<span>Vibe</span></a>
+  <div class="site-nav-links">
+    <a href="/">Home</a>
+    <a href="/dashboard">Dashboard</a>
+    <a href="/listing">Listing</a>
+    <a href="/browse">Browse</a>
+    <a href="/internal-dashboard">Internal</a>
+    <a href="/report">Report</a>
+    <a href="/business">Business</a>
+    <a href="/mascot-studio" aria-current="page">Mascot</a>
+    <a href="/privacy">Privacy</a>
+  </div>
+</nav>
+
 <div class="wrap">
   <header>
     <img id="mascot" alt="BeLive mascot" />

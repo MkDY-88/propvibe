@@ -1132,6 +1132,82 @@ def get_engagement_records(known_post_ids: set[str]) -> list[dict]:
     return rows
 
 
+def group_engagement_by_post(engagement: list[dict]) -> dict[str, list[dict]]:
+    """
+    Engagement rows bucketed by the Post they link to, oldest snapshot first.
+
+    THE rule for "which snapshot is a post's current engagement": /sync-engagement
+    appends a NEW Engagement row every run, so summing a post's rows would count
+    the same clicks over and over - the LAST row is the current truth. Callers
+    take ``rows[-1]``.
+
+    Airtable's createdTime is ISO-8601 UTC with a fixed layout, so plain string
+    ordering is chronological - no parsing needed. A row with no createdTime
+    sorts first and so loses to any dated row, which is right: we want the
+    newest snapshot to win.
+
+    Lives here, next to ``get_engagement_records()``, so the internal dashboard
+    and the public stats endpoint share one implementation instead of two that
+    can drift into reporting different totals for the same data.
+    """
+    by_post: dict[str, list[dict]] = {}
+    for row in engagement:
+        for post_id in row["post_record_ids"]:
+            by_post.setdefault(post_id, []).append(row)
+    for rows in by_post.values():
+        rows.sort(key=lambda row: row.get("created_time") or "")
+    return by_post
+
+
+def latest_clicks_by_post(known_post_ids: set[str] | None = None) -> dict[str, int]:
+    """
+    Each Post record id -> the click count on its most recent Engagement row.
+
+    The durable per-post click figure: what the internal dashboard shows in its
+    ``clicks`` column, and the baseline /sync-engagement compares a freshly-read
+    local count against before writing (see ``main.sync_engagement_endpoint``) so
+    a reset local counter can't overwrite a real historical count with a lower
+    one. Posts with no Engagement rows yet are simply absent from the mapping -
+    callers should treat a missing key as "no baseline", not as zero.
+
+    Args:
+        known_post_ids: The Post record ids to resolve Engagement links against.
+            Pass the ids you already hold to save a Posts read; omit to fetch
+            them.
+
+    Raises:
+        AirtableError: for missing credentials or an API/network error.
+    """
+    if known_post_ids is None:
+        posts = get_posts_detailed()
+        known_post_ids = {post["record_id"] for post in posts if post.get("record_id")}
+
+    by_post = group_engagement_by_post(get_engagement_records(known_post_ids))
+    return {post_id: rows[-1]["clicks"] for post_id, rows in by_post.items() if rows}
+
+
+def total_clicks_recorded() -> int:
+    """
+    Every post's current click count, summed - the durable, whole-system total.
+
+    Reads Airtable, NOT ``app.click_tracker``. The local counts file is an
+    ephemeral staging buffer that /sync-engagement drains into Airtable; on a
+    restart or redeploy it resets to zero, so anything that reports a standing
+    total has to read the synced record instead. This is the same number the
+    internal dashboard's per-post ``clicks`` column adds up to, because both go
+    through ``group_engagement_by_post()`` above.
+
+    Engagement rows that link to no known Post are skipped, matching the
+    dashboard, which shows them separately as orphaned rather than in a post's
+    rollup.
+
+    Raises:
+        AirtableError: for missing credentials or an API/network error. Callers
+            that must not fail (the public landing page) guard it themselves.
+    """
+    return sum(latest_clicks_by_post().values())
+
+
 def get_leads() -> list[dict]:
     """
     Every Leads row, read-only, with each column flattened to display text.

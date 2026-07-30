@@ -116,7 +116,6 @@ from app.click_tracker import (
     record_click,
     save_tracking_listing,
     save_tracking_photo,
-    total_clicks,
     tracking_id_for_post,
 )
 from app.airtable_client import (
@@ -128,8 +127,10 @@ from app.airtable_client import (
     # Aliased: bare `is_configured` would read ambiguously in this module, which
     # talks to Airtable, Facebook and fal.ai.
     is_configured as airtable_is_configured,
+    latest_clicks_by_post,
     log_engagement,
     save_cached_photo_condition,
+    total_clicks_recorded,
     upsert_lead_record,
 )
 from app.internal_dashboard import collect_dashboard_data
@@ -1573,6 +1574,15 @@ def sync_engagement_endpoint(x_sync_secret: str | None = Header(default=None)):
       3. Write a new Engagement row (clicks + likes + comments), linked to the
          post, via airtable_client.log_engagement.
 
+    CLICKS ARE A RATCHET. The local counter lives on an ephemeral disk and
+    empties on restart, so step 1 can legitimately read LOWER than what Airtable
+    already has. Writing that blindly buried real history, because every reader
+    treats the newest Engagement row as current truth. A post is therefore never
+    written below its latest recorded click count - see the ratchet comment in
+    the loop below. Likes and comments are not ratcheted: those come from
+    Facebook, which is authoritative and where a decrease is real (an unlike, a
+    deleted comment).
+
     Failures are isolated per-post so a single bad post can't abort the run:
       * A Facebook read failure does NOT fail the post - clicks are independent
         of Facebook, so we still log the clicks with likes/comments as 0 and mark
@@ -1588,10 +1598,19 @@ def sync_engagement_endpoint(x_sync_secret: str | None = Header(default=None)):
           "posts_checked": 3, "synced": 2, "skipped": 1, "failed": 0,
           "details": [ {"facebook_post_id": "...", "clicks": 4, "likes": 10,
                         "comments": 2, "logged": true},
+                       {"facebook_post_id": "...", "clicks": 26, "likes": 3,
+                        "comments": 0, "logged": true,
+                        "clicks_local": 0, "clicks_preserved": true},
                        {"facebook_post_id": "...", "clicks": 3, "likes": 0,
                         "comments": 0, "logged": true,
                         "note": "facebook_read_failed"}, ... ]
         }
+
+    ``clicks_preserved`` marks a post whose local counter had reset: ``clicks``
+    is the carried-forward recorded value and ``clicks_local`` is what the
+    counter actually said. A top-level ``clicks_baseline_unavailable`` means the
+    recorded counts couldn't be read at all, so no regression could be prevented
+    on that run.
 
     Requires the ``X-Sync-Secret`` header to match the ``SYNC_ENGAGEMENT_SECRET``
     env var - this endpoint has no other auth and would otherwise let anyone
@@ -1622,6 +1641,27 @@ def sync_engagement_endpoint(x_sync_secret: str | None = Header(default=None)):
         summary["message"] = "No posts found in Airtable yet - nothing to sync."
         return summary
 
+    # The click count already recorded for each post, read ONCE for the whole
+    # run rather than per post. This is the ratchet's baseline - see where
+    # `clicks` is decided below for why a sync must never write beneath it.
+    #
+    # Best-effort: if this read fails we can't tell what was already recorded,
+    # so we fall back to the raw local counts (the pre-ratchet behaviour) rather
+    # than refusing to sync at all. That window is flagged on the response so a
+    # regression that slips through it isn't silent.
+    try:
+        recorded_clicks = latest_clicks_by_post(
+            {post["record_id"] for post in posts if post.get("record_id")}
+        )
+    except AirtableError as exc:
+        recorded_clicks = {}
+        summary["clicks_baseline_unavailable"] = str(exc)
+        logger.warning(
+            "sync: could not read recorded click counts, click regressions "
+            "cannot be prevented this run: %s",
+            exc,
+        )
+
     for post in posts:
         record_id = post.get("record_id")
         fb_id = post.get("facebook_post_id")
@@ -1648,12 +1688,36 @@ def sync_engagement_endpoint(x_sync_secret: str | None = Header(default=None)):
         # with the clicks we have and likes/comments as 0, rather than losing the
         # whole post to a Facebook API hiccup. The post still counts as synced,
         # just with partial (clicks-only) data flagged in the detail.
-        clicks = get_clicks(tracking_id)
+        local_clicks = get_clicks(tracking_id)
+
+        # RATCHET: clicks only ever go up.
+        #
+        # app.click_tracker is a local file on an ephemeral disk - a restart or
+        # redeploy empties it. Writing its count blindly meant a post that had
+        # genuinely earned 26 clicks got a fresh Engagement row saying 0 the next
+        # time sync ran after a restart, and since every reader takes the LATEST
+        # row as current truth, that permanently buried the real number.
+        #
+        # A counter forgetting is not the same as clicks un-happening, so a
+        # lower local count is treated as "no new information" and the recorded
+        # value is carried forward instead. Genuine growth is unaffected: a
+        # higher local count is written exactly as before. A post with no
+        # Engagement rows yet has no baseline and writes its local count as-is
+        # (`.get` default of 0 can't exceed a non-negative count anyway).
+        recorded = recorded_clicks.get(record_id, 0)
+        clicks = max(local_clicks, recorded)
+        clicks_preserved = clicks != local_clicks
+
         logger.info(
-            "sync: post fb=%s tracking_id=%r -> clicks=%d",
+            "sync: post fb=%s tracking_id=%r -> clicks=%d (local=%d, recorded=%d)%s",
             fb_id,
             tracking_id or None,
             clicks,
+            local_clicks,
+            recorded,
+            " [local counter reset - carrying recorded value forward]"
+            if clicks_preserved
+            else "",
         )
         facebook_read_failed = False
 
@@ -1692,6 +1756,12 @@ def sync_engagement_endpoint(x_sync_secret: str | None = Header(default=None)):
             "comments": comments,
             "logged": True,
         }
+        if clicks_preserved:
+            # Make the ratchet visible: without these the response would just
+            # show an unchanged click count with no hint that the local counter
+            # had reset and the recorded value was held instead.
+            detail["clicks_local"] = local_clicks
+            detail["clicks_preserved"] = True
         if facebook_read_failed:
             # Partial sync: clicks were logged, Facebook counts defaulted to 0.
             detail["note"] = "facebook_read_failed"
@@ -1898,6 +1968,11 @@ def _assemble_public_stats() -> dict:
     """
     The three public totals, read fresh.
 
+    Every number here comes from Airtable, which is the point: these are the
+    figures a visitor sees first, so they have to be the ones that survive a
+    restart or a redeploy rather than whatever this particular process happens
+    to have accumulated since it booted.
+
     Never raises: each read is guarded independently so one unavailable source
     degrades that single number to its zero/None rather than failing the whole
     response. ``airtable_configured`` lets the page tell "genuinely zero so far"
@@ -1913,9 +1988,19 @@ def _assemble_public_stats() -> dict:
         except AirtableError as exc:
             logger.warning("Public stats could not read Posts: %s", exc)
 
-    # Local file read, and already best-effort internally - a missing counts
-    # file reads as 0.
-    clicks_tracked = total_clicks()
+    # Airtable, NOT app.click_tracker. The local counts file is an ephemeral
+    # staging buffer that /sync-engagement drains into Airtable - it resets on
+    # every restart and redeploy. Reading it here would put a reset-to-zero
+    # clicks figure next to a posts count that survived the restart, which is
+    # the one combination that makes the hero look broken rather than quiet.
+    # Same rollup the internal dashboard's clicks column uses, via the shared
+    # group_engagement_by_post() rule, so the two pages can't disagree.
+    clicks_tracked = 0
+    if configured:
+        try:
+            clicks_tracked = total_clicks_recorded()
+        except AirtableError as exc:
+            logger.warning("Public stats could not read Engagement: %s", exc)
 
     # Same single source of truth as /create-post's caption hint and the daily
     # report, so the landing page can never claim a different winner than the
@@ -1942,10 +2027,14 @@ def public_stats():
 
         {
           "posts_published": 6,       # rows in the Airtable Posts table
-          "clicks_tracked": 10,       # every tracking-link hit, summed
+          "clicks_tracked": 39,       # each post's latest synced click count, summed
           "winning_style": "Warm",    # or null when no engagement is synced yet
           "airtable_configured": true
         }
+
+    ``clicks_tracked`` is the synced Airtable figure, not the local counter, so
+    it can lag by up to one /sync-engagement run - a durable number that updates
+    on sync beats a live one that resets to zero on restart.
 
     Aggregates only - see the module comment above for why that boundary is
     drawn where it is. Served from a short in-process cache

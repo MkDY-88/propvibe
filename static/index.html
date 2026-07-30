@@ -150,7 +150,10 @@
     /* ---------------- Hero ---------------- */
     .hero {
       position: relative; overflow: hidden; color: #fff;
-      padding: 84px 24px 0; text-align: center;
+      /* The bottom padding is the navy runway the stat strip floats over: the
+         strip is pulled up into it by its own negative top margin, and what's
+         left is the breathing room between the buttons and the cards. */
+      padding: 84px 24px 116px; text-align: center;
       /* Layered light: a warm gold source off the top-right and a cool navy
          wash bottom-left, over the base gradient. Reads as depth rather than
          a flat brand-colour panel. */
@@ -224,21 +227,39 @@
     .btn-ghost:hover { background: rgba(255, 255, 255, 0.16); box-shadow: var(--shadow-lift); }
 
     /* ---- Live stat strip: the hero's proof-of-life ----
-       Sits half-overlapping the hero's bottom edge so the fold reads as one
-       composed unit instead of two stacked bands. */
+       Straddles the hero's bottom edge so the fold reads as one composed unit
+       instead of two stacked bands.
+
+       It is a SIBLING of .hero, not a child, and that is load-bearing: .hero
+       is overflow:hidden (it clips its own texture layer), so a strip nested
+       inside it got its bottom corners and its entire ambient shadow sliced
+       off flat along the navy/light seam - which is precisely what made the
+       two sections look like they were colliding rather than layered. Pulled
+       up from outside instead, nothing clips it, and the shadow it casts down
+       onto the light section is what sells the float. */
     .stat-strip {
-      position: relative; z-index: 1;
-      max-width: 880px; margin: 56px auto -46px; padding: 0 4px;
+      position: relative; z-index: 2;
+      max-width: 880px; margin: -56px auto 0; padding: 0 24px;
       display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px;
       animation: pv-fade-up var(--dur-slow) var(--ease) 0.32s both;
     }
     @media (max-width: 620px) {
-      .stat-strip { grid-template-columns: 1fr; margin-bottom: -32px; gap: 10px; }
+      /* Stacked, the strip is ~3x taller, so it only needs to dip its top card
+         into the navy for the same effect. */
+      .hero { padding-bottom: 92px; }
+      .stat-strip { grid-template-columns: 1fr; margin-top: -40px; gap: 10px; }
     }
     .stat {
-      background: rgba(255, 255, 255, 0.97); border: 1px solid rgba(255, 255, 255, 0.7);
+      background: #fff; border: 1px solid rgba(255, 255, 255, 0.85);
       border-radius: var(--radius-lg); padding: 20px 22px 18px; text-align: left;
-      box-shadow: var(--shadow-lg); position: relative; overflow: hidden;
+      position: relative; overflow: hidden;
+      /* A step deeper than --shadow-lg, in the same contact + ambient idiom.
+         A card crossing a dark-to-light boundary has to out-shadow the boundary
+         itself, or the eye reads the seam instead of the lift - hence the third,
+         wide layer carrying most of the weight. */
+      box-shadow: 0 2px 6px rgba(20, 33, 58, 0.10),
+                  0 10px 22px rgba(20, 33, 58, 0.13),
+                  0 30px 60px rgba(20, 33, 58, 0.22);
     }
     .stat::before {
       content: ""; position: absolute; top: 0; left: 0; right: 0; height: 3px;
@@ -264,7 +285,9 @@
     .stat .v[data-pending] { color: var(--chip); }
 
     /* ---------------- Sections ---------------- */
-    main { max-width: 960px; margin: 0 auto; padding: 92px 24px 24px; }
+    /* Measured from the strip's bottom edge, not the hero's: the strip now sits
+       in normal flow ahead of main, so this is the real gap under the cards. */
+    main { max-width: 960px; margin: 0 auto; padding: 72px 24px 24px; }
     .section-title {
       text-align: center; font-family: var(--font-display); font-weight: 600;
       font-size: 26px; letter-spacing: -0.015em; color: var(--navy);
@@ -359,28 +382,31 @@
         <a class="btn btn-ghost" href="/listing">See an example listing</a>
       </div>
     </div>
-
-    <!-- Live totals from GET /public-stats (unauthenticated, aggregate-only).
-         The values below are the honest no-JS / failed-fetch fallback: an em
-         dash, not a zero. -->
-    <div class="stat-strip" id="stat-strip">
-      <div class="stat">
-        <span class="k">Posts published</span>
-        <span class="v" id="stat-posts" data-pending>&mdash;</span>
-        <p class="n">Live from the Posts table</p>
-      </div>
-      <div class="stat">
-        <span class="k">Clicks tracked</span>
-        <span class="v" id="stat-clicks" data-pending>&mdash;</span>
-        <p class="n">Every tracking link, all time</p>
-      </div>
-      <div class="stat">
-        <span class="k">Winning style</span>
-        <span class="v is-word" id="stat-style" data-pending>&mdash;</span>
-        <p class="n">What captions lean toward now</p>
-      </div>
-    </div>
   </section>
+
+  <!-- Live totals from GET /public-stats (unauthenticated, aggregate-only).
+       The values below are the honest no-JS / failed-fetch fallback: an em
+       dash, not a zero.
+
+       Deliberately outside <section class="hero"> - see .stat-strip in the
+       stylesheet for why it can't be nested and still read as floating. -->
+  <div class="stat-strip" id="stat-strip">
+    <div class="stat">
+      <span class="k">Posts published</span>
+      <span class="v" id="stat-posts" data-pending>&mdash;</span>
+      <p class="n">Live from the Posts table</p>
+    </div>
+    <div class="stat">
+      <span class="k">Clicks tracked</span>
+      <span class="v" id="stat-clicks" data-pending>&mdash;</span>
+      <p class="n">Synced from every tracking link</p>
+    </div>
+    <div class="stat">
+      <span class="k">Winning style</span>
+      <span class="v is-word" id="stat-style" data-pending>&mdash;</span>
+      <p class="n">What captions lean toward now</p>
+    </div>
+  </div>
 
   <main>
     <div data-reveal>

@@ -447,19 +447,19 @@
           <h3>Agent Dashboard</h3>
           <p>Review the next auto-generated post, edit it, re-light the photo, and
              approve or skip.</p>
-          <span class="go">Go to /dashboard</span>
+          <span class="go">Go to the Dashboard</span>
         </a>
         <a class="explore-card pv-lift" href="/listing" data-reveal>
           <h3>Example Listing Page</h3>
           <p>The page a lead lands on after clicking a post &mdash; property details
              plus the AI leasing assistant.</p>
-          <span class="go">Go to /listing</span>
+          <span class="go">Go to the Listing Page</span>
         </a>
         <a class="explore-card pv-lift" href="/internal-dashboard" data-reveal>
           <h3>Internal Dashboard<span class="locked">Secret required</span></h3>
           <p>Read-only sales-flow view: posts, engagement, style performance and
              leads. Gated behind the internal secret.</p>
-          <span class="go">Go to /internal-dashboard</span>
+          <span class="go">Go to the Internal Dashboard</span>
         </a>
       </div>
     </section>
@@ -585,6 +585,53 @@
         .catch(() => {
           // Leave the em-dash placeholders exactly as rendered. A hero that
           // quietly says "unknown" beats one that asserts a made-up 0.
+        });
+    })();
+
+    // ---- Point every "example listing" link at a REAL posted listing ------
+    // Every link on this page that goes to a bare /listing (the hero CTA, the
+    // "Example Listing Page" card, and the nav item) lands on the generic
+    // "Looking for a place?" chatbot, because /listing only renders a real
+    // property when it is handed a ?tid=. Rewrite them to the newest listing
+    // PropVibe has actually published.
+    //
+    // The id comes from GET /posted-listings - the same get_posts() Airtable
+    // read /browse is built on, and the same durable record the tracking-id
+    // fallback in main.py resolves against. Deliberately not a hardcoded id and
+    // not the local click_tracker map: both go stale (the map lives on an
+    // ephemeral disk and empties on every restart), which is exactly how this
+    // link broke before. That endpoint only returns posts that still resolve to
+    // a listing row, so whatever we link to is guaranteed to render real
+    // details and a real chat rather than a half-empty page.
+    //
+    // Fetched client-side rather than substituted into this page server-side so
+    // "/" stays a static FileResponse that never blocks first paint on Airtable
+    // - the same posture as the hero stats above. Nothing has been posted yet,
+    // an unreadable Airtable, or no JS at all all leave the hrefs exactly as
+    // authored, i.e. today's generic behaviour.
+    //
+    // Links by ?tid= on purpose, NOT via /t/<id>: that route records a click,
+    // and browsing the demo must not inflate the engagement numbers.
+    (function () {
+      const links = document.querySelectorAll('a[href="/listing"]');
+      if (!links.length) return;
+
+      fetch("/posted-listings")
+        .then((resp) => (resp.ok ? resp.json() : Promise.reject(resp.status)))
+        .then((payload) => {
+          // Newest first - /posted-listings walks the Posts table in reverse.
+          const newest = (payload.listings || [])[0];
+          const trackingId = newest && newest.tracking_id;
+          if (!trackingId) return; // Nothing published yet: stay generic.
+
+          const href = "/listing?tid=" + encodeURIComponent(trackingId);
+          links.forEach((link) => {
+            link.setAttribute("href", href);
+          });
+        })
+        .catch(() => {
+          // Same degrade-don't-break rule as the stats: a generic listing page
+          // is a fine outcome, a broken link is not.
         });
     })();
   </script>

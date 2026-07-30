@@ -1642,7 +1642,8 @@ def chat_endpoint(payload: dict = Body(...)):
         {
           "tracking_id": "ab12cd34",       # from the ?tid= on the landing page
           "message":     "Is parking included?",
-          "history":     [{"role": "user", "content": "..."}, ...]  # optional
+          "history":     [{"role": "user", "content": "..."}, ...],  # optional
+          "followup_sent": false           # optional - see followup_email below
         }
 
     We resolve which listing the tracking id was published for (same lookup as
@@ -1668,7 +1669,22 @@ def chat_endpoint(payload: dict = Body(...)):
 
     Returns JSON::
 
-        {"reply": "<what to say back>", "status": "lead" | "prospect"}
+        {"reply": "<what to say back>", "status": "lead" | "prospect",
+         "followup_email": "<draft email>" | null}
+
+    `followup_email` is the assistant's one concrete next step: on the single
+    turn a lead first qualifies as a prospect it is a short draft email written
+    in their voice, to the agent, from what they actually said - the listing,
+    their budget, their timing - which the page offers them to copy and send.
+    It is null on every other turn, so it appears once rather than trailing
+    every later message. Nothing is sent from here: this is text for the lead's
+    own mail client, not an email the server delivers.
+
+    That "once" is what the request's optional `followup_sent` is for. This
+    endpoint holds no conversation state - the client owns the history - so it
+    cannot know a draft already went out three messages ago; the page says so
+    by sending back `followup_sent: true` from then on. Omitting it is safe
+    but softer: the assistant is also told to write only one, and mostly does.
 
     A failure from the assistant itself comes back as a clean 502 carrying the
     underlying message, the same shape as /create-post's caption failures.
@@ -1685,6 +1701,12 @@ def chat_endpoint(payload: dict = Body(...)):
     if not isinstance(history, list):
         raise HTTPException(status_code=400, detail="'history' must be a list.")
 
+    # Anything other than a real `true` means "no draft yet" - a client that
+    # omits it, or sends something odd, gets the default behaviour rather than
+    # a 400. It only ever suppresses a draft, so a wrong value costs the lead
+    # a suggestion, never anything worse.
+    followup_sent = payload.get("followup_sent") is True
+
     listing_context = _listing_context(tracking_id)
     alternatives = _alternatives_for(tracking_id, history, message) or {}
 
@@ -1698,6 +1720,7 @@ def chat_endpoint(payload: dict = Body(...)):
             # accurately: nothing was loosened because nothing was searched.
             alternatives_exact=alternatives.get("exact", True),
             relaxed_criteria=alternatives.get("relaxed_criteria"),
+            followup_sent=followup_sent,
         )
     except ChatError as exc:
         raise HTTPException(status_code=502, detail=str(exc))
@@ -1722,7 +1745,11 @@ def chat_endpoint(payload: dict = Body(...)):
             exc,
         )
 
-    return {"reply": result["reply"], "status": result["status"]}
+    return {
+        "reply": result["reply"],
+        "status": result["status"],
+        "followup_email": result["followup_email"],
+    }
 
 
 @app.post("/sync-engagement")

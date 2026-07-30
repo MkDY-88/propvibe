@@ -13,6 +13,7 @@ dict::
         "status":           "lead" | "prospect",
         "budget_signal":    "Around RM 1,200/month" | None,
         "timeline_signal":  "Wants to move in by August" | None,
+        "followup_email":   "<draft email from the lead to the agent>" | None,
     }
 
 `status` is deliberately conservative: everyone starts as a "lead" and only
@@ -22,6 +23,16 @@ in `_normalise`, which downgrades any claimed "prospect" that did not come
 with both signals - so the rule holds whether or not the model cooperates.
 The two *_signal fields are what the caller logs to Airtable so a human can
 see why - they're never shown to the lead.
+
+`followup_email` is the one thing here that IS shown to the lead: a short
+draft email in their own voice, addressed to the agent, that they can copy
+and send to actually arrange a viewing. It exists so a conversation that has
+gone well ends somewhere instead of trailing off. It is written on the single
+turn where the lead first becomes a "prospect" and is None on every other
+turn, which `_normalise` decides rather than trusts: null unless the status is
+"prospect", and null again once this conversation has had its draft. That
+second part is what the caller's `followup_sent` is for - a stateless request
+cannot tell on its own that it wrote one last turn. See `_normalise`.
 
 `extract_search_intent()` is the companion call: it reads the WHOLE
 conversation and reports whether the lead needs to see OTHER properties, plus
@@ -57,7 +68,8 @@ logger = logging.getLogger("propvibe.lead_chatbot")
 # Haiku is more than capable of a friendly leasing conversation.
 MODEL = "claude-haiku-4-5-20251001"
 
-# A conversational reply plus two short signal strings is small; 1024 gives
+# A conversational reply plus two short signal strings is small, and the one
+# turn that also carries a draft email adds a paragraph at most; 1024 gives
 # plenty of headroom while still capping a runaway response.
 MAX_TOKENS = 1024
 
@@ -148,14 +160,24 @@ OUTPUT_FORMAT_PROMPT = (
     "conversation is about:\n"
     "You reply with ONLY a single JSON object and nothing else - no markdown, "
     "no code fences, no commentary before or after. The JSON object must have "
-    "exactly these four keys:\n"
+    "exactly these six keys:\n"
     '  "reply":           a string. What you say back to them.\n'
     '  "status":          the string "lead" or "prospect" - nothing else.\n'
     '  "budget_signal":   a short string summarising what they have revealed '
     "about their budget (e.g. \"Comfortable around RM 1,200/month\"), or null "
     "if they haven't given any.\n"
     '  "timeline_signal": a short string summarising when they want to move '
-    '(e.g. "Looking to move in early August"), or null if they haven\'t said.'
+    '(e.g. "Looking to move in early August"), or null if they haven\'t said.\n'
+    '  "already_qualified": true or false - a fact about the conversation '
+    "BEFORE their latest message. Ignore their latest message entirely, look "
+    "at everything that came before it, and answer: had they by then ALREADY "
+    "given real signal about BOTH their budget AND when they want to move in? "
+    "true if both were already there, false if either was still missing (and "
+    "false when there is no earlier conversation at all). This is not about "
+    "your reply - it is you reading back over the transcript.\n"
+    '  "followup_email":  null on almost every turn - see DRAFT EMAIL below '
+    "for the one turn it is not. Write this key LAST, after you have answered "
+    '"already_qualified", because that answer decides it.'
     "\n\n"
     'STATUS RULES - a two-condition test, not a judgement call. Default to '
     '"lead" and work through both:\n'
@@ -171,9 +193,48 @@ OUTPUT_FORMAT_PROMPT = (
     'agree with your status. If "timeline_signal" is null you MUST return '
     '"lead". If "budget_signal" is null you MUST return "lead". "prospect" is '
     "never correct while either of those is null.\n\n"
+    "DRAFT EMAIL - what goes in \"followup_email\". This is the ONE thing here "
+    "they will actually see besides your reply, so it has to be theirs to "
+    "send, not yours to say.\n"
+    "WHEN: only on the turn where their LATEST message is what finally makes "
+    'them a "prospect" - i.e. status is "prospect" AND "already_qualified" is '
+    "false. Read the two keys you have just written and copy that answer: if "
+    'either "status" is "lead" or "already_qualified" is true, this is null, '
+    "and it does not matter how good a draft you could write.\n"
+    "WHAT: a short plain-text email FROM THEM, TO the letting agent, in their "
+    "own first-person voice, ready to copy and send:\n"
+    '- A "Subject: ..." line, then a blank line, then three or four short '
+    "sentences.\n"
+    "- Name the property they are interested in, say what they told you about "
+    "their budget and when they want to move in, and ask to arrange a "
+    "viewing.\n"
+    "- ONLY what they actually said, plus the property details written above. "
+    "Never invent a date, a name, a phone number, an email address, a unit "
+    "number or a requirement they did not give you - an email that puts words "
+    "in their mouth is worse than no email at all.\n"
+    "- You do not know their name. Sign off with \"Thanks,\" and then the "
+    'literal placeholder "[Your name]" on the next line - never make one up.\n'
+    "- Plain text only - no markdown, no bold, no bullets - as a single JSON "
+    "string using \\n for the line breaks.\n"
+    "- The email is the ONLY place the agent is ever mentioned. Do not "
+    "describe the draft, read it out, or tell them to contact, reach out to or "
+    "ask the agent in \"reply\" - the page puts the draft in front of them "
+    "itself, and the rule about never pointing them at another person still "
+    "holds on every single turn. Your reply is just your normal warm answer to "
+    "what they asked.\n\n"
     "Even when you are turning someone down, have nothing to offer them, or "
     "are listing other places, the reply is still that one JSON object - the "
     "prose goes inside \"reply\"."
+)
+
+# Appended after OUTPUT_FORMAT_PROMPT when the caller has told us this
+# conversation already got its draft email. Saves the model writing a second
+# one nobody will see, and stops it referring to a draft as though it were new.
+# It is only a saving, never the guarantee - `_normalise` clears the field on
+# this same flag whatever comes back.
+FOLLOWUP_ALREADY_SENT_PROMPT = (
+    "\n\nALREADY SENT: they have already been given their draft email earlier "
+    'in this conversation. "followup_email" MUST be null this turn.'
 )
 
 # Put into Claude's mouth as the start of its own turn, so the response can
@@ -473,7 +534,7 @@ def _optional_signal(value) -> str | None:
     return cleaned
 
 
-def _normalise(parsed: dict) -> dict:
+def _normalise(parsed: dict, followup_sent: bool = False) -> dict:
     """
     Validate and tidy the parsed object into the exact shape callers expect.
 
@@ -489,6 +550,29 @@ def _normalise(parsed: dict) -> dict:
     fields are the right thing to decide it from: they are what a human reads
     off the Airtable row, so a "prospect" with nothing in its timeline column
     is not a qualified lead, it is a mislabelled one.
+
+    `followup_email` is gated the same way, on three things in turn, so the
+    draft goes out on the turn a lead crosses the line and not on every turn
+    afterwards:
+
+    1. The status. A draft is only ever for someone who has just qualified, so
+       it is cleared on any turn that ends up "lead", including one the
+       backstop above just downgraded.
+    2. `followup_sent` - the caller telling us this conversation has already
+       had its draft. This is the only gate that actually guarantees "once",
+       because it is the only one that KNOWS: each request is stateless and the
+       draft never goes into the history, so nothing in the model's input says
+       it wrote one last turn. /chat gets this from the page, which tracks the
+       draft it has already rendered.
+    3. `already_qualified` - the model's own read of whether both signals were
+       already on the table BEFORE this message. It is the fallback for a
+       caller that doesn't track (2), and it is phrased as a question about the
+       transcript because that is something the model can check by reading;
+       asked instead to remember whether it had "already sent one" it re-sent
+       the draft on every single turn. Even phrased well it is only mostly
+       right - roughly one late turn in four came back false when both signals
+       had plainly been there for messages - which is exactly why (2) exists
+       and why this is not the mechanism the guarantee rests on.
     """
     reply = parsed.get("reply")
     if not isinstance(reply, str) or not reply.strip():
@@ -500,6 +584,9 @@ def _normalise(parsed: dict) -> dict:
     # way past this either.
     budget_signal = _optional_signal(parsed.get("budget_signal"))
     timeline_signal = _optional_signal(parsed.get("timeline_signal"))
+    # Same cleaner: it trims, and turns a literal "null"/"none" into None. The
+    # word-match only fires on the WHOLE string, so a real draft is untouched.
+    followup_email = _optional_signal(parsed.get("followup_email"))
 
     raw_status = parsed.get("status")
     status = raw_status.strip().lower() if isinstance(raw_status, str) else ""
@@ -521,11 +608,30 @@ def _normalise(parsed: dict) -> dict:
         )
         status = STATUS_LEAD
 
+    if followup_email is not None:
+        if status != STATUS_PROSPECT:
+            # A draft on a "lead" turn is the model contradicting its own
+            # status - and this one is user-visible, so dropping it is not
+            # optional. Warned like the other model-contract violations here.
+            logger.warning("Dropping a 'followup_email' returned on a '%s' turn.", status)
+            followup_email = None
+        elif followup_sent or _as_bool(parsed.get("already_qualified")):
+            # This conversation has had its draft already. Not a contract
+            # violation worth a warning - suppressing the repeat IS the
+            # mechanism, and on the `followup_sent` path the model was only
+            # asked not to bother. A missing or garbled `already_qualified`
+            # reads as False (i.e. show it): never showing the draft would be a
+            # worse failure than showing it twice, and a caller that tracks
+            # `followup_sent` has already decided this anyway.
+            logger.debug("Suppressing a repeat 'followup_email' for an already-qualified lead.")
+            followup_email = None
+
     return {
         "reply": reply.strip(),
         "status": status,
         "budget_signal": budget_signal,
         "timeline_signal": timeline_signal,
+        "followup_email": followup_email,
     }
 
 
@@ -688,6 +794,7 @@ def qualify_lead(
     other_listings: list[dict] | None = None,
     alternatives_exact: bool = True,
     relaxed_criteria: list[str] | tuple[str, ...] | None = None,
+    followup_sent: bool = False,
 ) -> dict:
     """
     Answer a lead's chat message and score how qualified they are.
@@ -718,11 +825,29 @@ def qualify_lead(
             "must-have features"), from SearchResult.relaxed_criteria, so the
             assistant can name the shortfall instead of waving at it. Ignored
             when `alternatives_exact` is True.
+        followup_sent: True once this conversation has been given its draft
+            email, which forces "followup_email" back to None for the rest of
+            it. Every request here is stateless and the draft is never part of
+            the history, so this is the only way the call can know - a caller
+            that leaves it False is relying on the model noticing on its own,
+            which it does most of the time but not reliably. Pass whether
+            YOUR side has shown one, not whether the last response contained
+            one: the two differ the moment a turn errors out.
 
     Returns:
         dict with keys "reply" (str), "status" ("lead" or "prospect"),
-        "budget_signal" (str | None) and "timeline_signal" (str | None). The
-        signals are for the caller's own records - don't show them to the lead.
+        "budget_signal" (str | None), "timeline_signal" (str | None) and
+        "followup_email" (str | None). The signals are for the caller's own
+        records - don't show them to the lead.
+
+        "followup_email" is the exception: it IS for the lead. On the one turn
+        where they first become a "prospect" it is a short draft email in
+        their voice, addressed to the agent, naming the listing they are
+        interested in with the budget and timing they gave and asking for a
+        viewing - something to copy and send, so a good conversation has a next
+        step. It is None on every other turn, including later prospect turns,
+        so the same draft is not pushed at them message after message - see
+        `followup_sent` above for what makes that hold.
 
     Raises:
         ChatError: for any failure - missing/invalid API key, rate limit,
@@ -760,6 +885,7 @@ def qualify_lead(
                     other_listings, alternatives_exact, relaxed_criteria
                 )
                 + OUTPUT_FORMAT_PROMPT
+                + (FOLLOWUP_ALREADY_SENT_PROMPT if followup_sent else "")
             ),
             messages=messages,
         )
@@ -792,4 +918,4 @@ def qualify_lead(
     # The prefilled "{" is ours, not the model's, so it isn't in the response -
     # put it back before parsing or every object would be missing its opening
     # brace. (Checked emptiness first, above, on what the model actually said.)
-    return _normalise(_extract_json(JSON_PREFILL + text))
+    return _normalise(_extract_json(JSON_PREFILL + text), followup_sent=followup_sent)

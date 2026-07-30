@@ -236,6 +236,37 @@
       color: var(--gray); font-style: italic;
       animation: pv-fade-up var(--dur) var(--ease) both, pv-pulse 1.2s ease-in-out 0.3s infinite;
     }
+    /* The draft email handed over once the conversation has actually got
+       somewhere. Deliberately NOT a .msg bubble: it is something to take away
+       and send, not another line of the chat - so it runs the full width in
+       the gold accent rather than sitting on either side. */
+    .draft {
+      align-self: stretch; background: var(--gold-tint);
+      border: 1px solid var(--gold); border-radius: 12px; padding: 12px 14px;
+      box-shadow: var(--shadow-sm);
+      animation: pv-fade-up var(--dur) var(--ease) both;
+    }
+    .draft-head {
+      display: flex; align-items: center; justify-content: space-between;
+      gap: 10px; margin-bottom: 8px;
+    }
+    .draft-label {
+      font-size: 11.5px; font-weight: 700; letter-spacing: 0.09em;
+      text-transform: uppercase; color: var(--gold-deep);
+    }
+    .draft-copy {
+      font: inherit; font-size: 12px; font-weight: 600; cursor: pointer;
+      background: #fff; color: var(--gold-deep);
+      border: 1px solid var(--gold); border-radius: 999px; padding: 4px 13px;
+      transition: background var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease),
+                  box-shadow var(--dur-fast) var(--ease);
+    }
+    .draft-copy:hover { background: var(--gold); color: #fff; box-shadow: var(--shadow-gold); }
+    .draft-copy:active { transform: scale(0.97); }
+    .draft-body {
+      font-size: 13.5px; color: var(--ink); line-height: 1.55;
+      white-space: pre-wrap; word-wrap: break-word;
+    }
     .input-row { display: flex; gap: 10px; }
     #chat-input {
       flex: 1; font: inherit; font-size: 14px; padding: 11px 14px;
@@ -334,6 +365,11 @@
     // /chat call so the assistant keeps its thread. Lives only on this page.
     const history = [];
 
+    // At most one draft email per conversation. This is the only place that
+    // KNOWS - every /chat request is stateless - so it is both the render
+    // guard here and what we send back as `followup_sent` from then on.
+    let draftShown = false;
+
     function addMessage(className, text) {
       const div = document.createElement("div");
       div.className = "msg " + className;
@@ -341,6 +377,68 @@
       messagesBox.appendChild(div);
       messagesBox.scrollTop = messagesBox.scrollHeight;
       return div;
+    }
+
+    async function copyDraft(text, button) {
+      let copied = false;
+      try {
+        await navigator.clipboard.writeText(text);
+        copied = true;
+      } catch (err) {
+        // navigator.clipboard only exists in a secure context (https, or
+        // localhost). Fall back to the old selection-based copy so the button
+        // still works when the page is served over plain http.
+        const scratch = document.createElement("textarea");
+        scratch.value = text;
+        scratch.setAttribute("readonly", "");
+        scratch.style.position = "fixed";
+        scratch.style.opacity = "0";
+        document.body.appendChild(scratch);
+        scratch.select();
+        try {
+          copied = document.execCommand("copy");
+        } catch (fallbackErr) {
+          copied = false;
+        }
+        scratch.remove();
+      }
+      button.textContent = copied ? "Copied" : "Copy failed";
+      setTimeout(() => { button.textContent = "Copy"; }, 2000);
+    }
+
+    // The draft the assistant wrote for them - shown, never sent. There is no
+    // send action here on purpose: it goes on the clipboard and into their own
+    // mail client, so the lead stays in control of what actually leaves.
+    function addDraftEmail(text) {
+      const box = document.createElement("div");
+      box.className = "draft";
+
+      const head = document.createElement("div");
+      head.className = "draft-head";
+
+      const label = document.createElement("span");
+      label.className = "draft-label";
+      label.textContent = "Draft email to send the agent";
+
+      const copyBtn = document.createElement("button");
+      copyBtn.type = "button";
+      copyBtn.className = "draft-copy";
+      copyBtn.textContent = "Copy";
+      copyBtn.addEventListener("click", () => copyDraft(text, copyBtn));
+
+      head.appendChild(label);
+      head.appendChild(copyBtn);
+
+      const body = document.createElement("div");
+      body.className = "draft-body";
+      // textContent, like every other message here - the draft is model output
+      // and must never be parsed as markup.
+      body.textContent = text;
+
+      box.appendChild(head);
+      box.appendChild(body);
+      messagesBox.appendChild(box);
+      messagesBox.scrollTop = messagesBox.scrollHeight;
     }
 
     function greet(listing) {
@@ -402,8 +500,15 @@
           method: "POST",
           headers: { "Content-Type": "application/json" },
           // history = the turns BEFORE this message; the server appends the
-          // new message itself.
-          body: JSON.stringify({ tracking_id: trackingId, message, history }),
+          // new message itself. followup_sent tells it we already have a draft
+          // email on screen - the server holds no state of its own, so this is
+          // the only thing standing between one draft and one every turn.
+          body: JSON.stringify({
+            tracking_id: trackingId,
+            message,
+            history,
+            followup_sent: draftShown,
+          }),
         });
         const payload = await resp.json().catch(() => ({}));
         typing.remove();
@@ -416,6 +521,15 @@
         addMessage("msg-assistant", payload.reply);
         history.push({ role: "user", content: message });
         history.push({ role: "assistant", content: payload.reply });
+
+        // Deliberately NOT pushed into `history`: the draft is for the lead,
+        // not a turn of the conversation the assistant should answer next.
+        const draft =
+          typeof payload.followup_email === "string" ? payload.followup_email.trim() : "";
+        if (draft && !draftShown) {
+          draftShown = true;
+          addDraftEmail(draft);
+        }
       } catch (err) {
         typing.remove();
         addMessage("msg-error", "Sorry - we're having trouble right now. Please try again.");

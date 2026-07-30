@@ -14,16 +14,18 @@ Two public functions::
         problem noted in an "errors" list - it never raises, matching the
         posture of every other reporting read in this app.
 
-    generate_daily_report(data: dict) -> str
-        Hands those numbers to Claude Haiku and returns the written summary.
-        Raises ReportError on any failure (missing key, rate limit, network,
-        unusable JSON) - same single-clean-exception contract as
+    generate_daily_report(data: dict) -> dict
+        Hands those numbers to Claude Haiku and returns the written summary as
+        ``{"headline": str, "highlights": [str, ...]}`` - a one-sentence TL;DR
+        plus a few scannable single-sentence bullets, rather than one dense
+        paragraph. Raises ReportError on any failure (missing key, rate limit,
+        network, unusable JSON) - same single-clean-exception contract as
         copy_generator.CaptionError, so the endpoint can catch exactly one
         thing and degrade to a "report unavailable" message.
 
 The Claude call follows copy_generator's strict-JSON-envelope pattern: ask for
 ONLY a JSON object, parse it defensively (whole reply, then a stripped code
-fence, then the outermost braces), and validate the one field we need.
+fence, then the outermost braces), and validate the fields we need.
 """
 
 from __future__ import annotations
@@ -57,6 +59,11 @@ MAX_TOKENS = 1024
 # bucketed under this label so the distribution always sums to total_posts.
 UNKNOWN_STYLE = "Unknown"
 
+# The prompt asks for 2-4 highlights; a longer list is truncated rather than
+# rejected, so an over-chatty reply degrades to the intended shape instead of
+# costing the whole summary.
+MAX_HIGHLIGHTS = 4
+
 SYSTEM_PROMPT = (
     "You are writing a short end-of-day performance report for the solo "
     "operator of PropVibe - an app that publishes property listing posts to "
@@ -72,11 +79,13 @@ SYSTEM_PROMPT = (
     "null when there is no engagement data yet.\n"
     '  "errors": problems reading the data, if any - mention briefly that '
     "some data was unavailable when this is non-empty.\n\n"
-    "Write the way a busy solopreneur would want to read their own day: what "
-    "happened, which style is winning and by how much, and what the system "
-    "learned and will adapt (future captions lean toward the winning style). "
-    "A few short paragraphs of plain language - no markdown, no headers, no "
-    "bullet lists.\n\n"
+    "Write the way a busy solopreneur would want to SKIM their own day: one "
+    "headline sentence with the day's single most important takeaway, then a "
+    "few short highlights covering what happened, which style is winning and "
+    "by how much, and what the system learned and will adapt (future captions "
+    "lean toward the winning style). Plain language throughout - no markdown, "
+    "no headers, no bullet characters; every highlight is a single clear "
+    "sentence stating one fact or takeaway.\n\n"
     "Ground every figure strictly in the JSON you are given. NEVER invent, "
     "estimate or extrapolate a number that is not present in it. If the data "
     "is thin (no posts yet, or no engagement synced yet), say so honestly "
@@ -88,8 +97,10 @@ SYSTEM_PROMPT = (
     "of the arithmetic, state the plain values instead.\n\n"
     "You reply with ONLY a single JSON object and nothing else - no markdown, "
     "no code fences, no commentary before or after. The JSON object must have "
-    "exactly this one key:\n"
-    '  "report": a string. The written summary described above.'
+    "exactly these two keys:\n"
+    '  "headline": a string. The one-sentence TL;DR of the day.\n'
+    '  "highlights": an array of 2 to 4 strings. Each is a single clear '
+    "sentence - one fact or takeaway per item, grounded in the JSON numbers."
 )
 
 
@@ -201,7 +212,7 @@ def _extract_json(text: str) -> dict:
     )
 
 
-def generate_daily_report(data: dict) -> str:
+def generate_daily_report(data: dict) -> dict:
     """
     Ask Claude Haiku to write the end-of-day summary for the assembled numbers.
 
@@ -211,7 +222,12 @@ def generate_daily_report(data: dict) -> str:
             are not in it.
 
     Returns:
-        The written summary: a few short paragraphs of plain text, no markdown.
+        The written summary, structured for skimming::
+
+            {"headline": "...",              # one-sentence TL;DR
+             "highlights": ["...", "..."]}   # 2-4 single-sentence bullets
+
+        Plain text throughout, no markdown.
 
     Raises:
         ReportError: for any failure - missing/invalid API key, rate limit,
@@ -268,7 +284,19 @@ def generate_daily_report(data: dict) -> str:
     if not text.strip():
         raise ReportError("Claude returned an empty response. Please try again.")
 
-    report = _extract_json(text).get("report")
-    if not isinstance(report, str) or not report.strip():
-        raise ReportError("Claude's response was missing a usable 'report'.")
-    return report.strip()
+    parsed = _extract_json(text)
+
+    headline = parsed.get("headline")
+    if not isinstance(headline, str) or not headline.strip():
+        raise ReportError("Claude's response was missing a usable 'headline'.")
+
+    raw_highlights = parsed.get("highlights")
+    if not isinstance(raw_highlights, list):
+        raise ReportError("Claude's response was missing a usable 'highlights' list.")
+    highlights = [
+        item.strip() for item in raw_highlights if isinstance(item, str) and item.strip()
+    ]
+    if not highlights:
+        raise ReportError("Claude's response had no usable highlights in it.")
+
+    return {"headline": headline.strip(), "highlights": highlights[:MAX_HIGHLIGHTS]}

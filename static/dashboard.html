@@ -305,6 +305,7 @@
       <a href="/">Home</a>
       <a href="/dashboard" aria-current="page">Dashboard</a>
       <a href="/listing">Listing</a>
+      <a href="/browse">Browse</a>
       <a href="/internal-dashboard">Internal</a>
       <a href="/report">Report</a>
       <a href="/business">Business</a>
@@ -637,7 +638,12 @@
           top.className = "search-result-top";
           const name = document.createElement("span");
           name.className = "sr-name";
-          name.textContent = item.condo_name;
+          // "Condo Name — Room Type", matching the approve/skip card's own
+          // heading: several units share a building here, and without the room
+          // type the rows for them are indistinguishable.
+          name.textContent = item.room_type
+            ? `${item.condo_name} — ${item.room_type}`
+            : item.condo_name;
           const price = document.createElement("span");
           price.className = "sr-price";
           price.textContent = item.price;

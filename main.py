@@ -96,6 +96,7 @@ from app.poster_generator import (
 from app.copy_generator import STYLE_TAGS, CaptionError, generate_caption
 from app.lead_chatbot import ChatError, extract_search_intent, qualify_lead
 from app.photo_condition import FalEditError, TIME_OF_DAY_VALUES, WEATHER_VALUES, edit_photo_condition
+from app.mascot_video import router as mascot_video_router
 from app.trend_research import research_trend
 from app.listings_source import (
     PHOTO_POOL_DIR,
@@ -142,6 +143,12 @@ from app.daily_report import ReportError, collect_report_data, generate_daily_re
 logger = logging.getLogger("propvibe.main")
 
 app = FastAPI()
+
+# Mascot Video Studio (stretch feature, dev-only): registers GET /mascot-studio
+# and its own endpoints. Everything that feature needs lives in
+# app/mascot_video.py - this line is its only contact with the rest of the app,
+# and it is not linked from any nav.
+app.include_router(mascot_video_router)
 
 # Scratch space for uploads. Resolved relative to THIS file rather than the
 # working directory so it behaves the same locally and on Railway. Gitignored -
